@@ -11,87 +11,98 @@ class Vector
 {
 
 public:
-    explicit Vector(double x = 0, double y = 0, double z = 0)
-    {
-        data[0] = x;
-        data[1] = y;
-        data[2] = z;
-    }
-    double norm2() const
-    {
-        return data[0] * data[0] + data[1] * data[1] + data[2] * data[2];
-    }
-    double norm() const
-    {
-        return sqrt(norm2());
-    }
-    void normalize()
-    {
-        double n = norm();
-        data[0] /= n;
-        data[1] /= n;
-        data[2] /= n;
-    }
-    double operator[](int i) const { return data[i]; };
-    double &operator[](int i) { return data[i]; };
-    double data[3];
+	explicit Vector(double x = 0, double y = 0, double z = 0)
+	{
+		data[0] = x;
+		data[1] = y;
+		data[2] = z;
+	}
+	double norm2() const
+	{
+		return data[0] * data[0] + data[1] * data[1] + data[2] * data[2];
+	}
+	double norm() const
+	{
+		return sqrt(norm2());
+	}
+	void normalize()
+	{
+		double n = norm();
+		data[0] /= n;
+		data[1] /= n;
+		data[2] /= n;
+	}
+	double operator[](int i) const { return data[i]; };
+	double &operator[](int i) { return data[i]; };
+	double data[3];
 };
 
 Vector operator+(const Vector &a, const Vector &b)
 {
-    return Vector(a[0] + b[0], a[1] + b[1], a[2] + b[2]);
+	return Vector(a[0] + b[0], a[1] + b[1], a[2] + b[2]);
 }
 Vector operator-(const Vector &a, const Vector &b)
 {
-    return Vector(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+	return Vector(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
 Vector operator*(const double a, const Vector &b)
 {
-    return Vector(a * b[0], a * b[1], a * b[2]);
+	return Vector(a * b[0], a * b[1], a * b[2]);
 }
 Vector operator*(const Vector &a, const double b)
 {
-    return Vector(a[0] * b, a[1] * b, a[2] * b);
+	return Vector(a[0] * b, a[1] * b, a[2] * b);
 }
 Vector operator/(const Vector &a, const double b)
 {
-    return Vector(a[0] / b, a[1] / b, a[2] / b);
+	return Vector(a[0] / b, a[1] / b, a[2] / b);
 }
 double dot(const Vector &a, const Vector &b)
 {
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 Vector cross(const Vector &a, const Vector &b)
 {
-    return Vector(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]);
+	return Vector(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]);
 }
+
+struct Intersection
+{
+	bool exists;
+	Vector point;
+	double t;
+};
 
 class Ray
 {
 public:
-    Ray(const Vector &origin, const Vector &direction) : C(origin), u(direction){};
-    Vector C, u;
+	Ray(const Vector &origin, const Vector &direction) : C(origin), u(direction){};
+	Vector C, u;
 };
 
 class Sphere
 {
 public:
-    Sphere(const Vector &origin, double radius) : O(origin), R(radius){};
+	Sphere(const Vector &origin, double radius, Vector &rho) : O(origin), R(radius), rho(rho){};
 
-    bool intersect(const Ray &r) const
-    {
-        double a = 1;
-        double b = 2 * dot(r.u, r.C - O);
-        double c = dot(r.C - O, r.C - O) - R * R;
-        double delta = b * b - 4 * a * c;
+	Intersection intersect(const Ray &r) const
+	{
+		double a = 1;
+		double b = 2 * dot(r.u, r.C - O);
+		double c = dot(r.C - O, r.C - O) - R * R;
+		double delta = b * b - 4 * a * c;
 
-        bool intersection;
+		Intersection intersection;
+		Vector N(0, 0, 0); // Dans le cas sans intersection, on renverra (0, 0, 0)
 
-        // Pas de racines réelles : pas d'intersection
-        if (delta < 0)
-            return false;
+		// Pas de racines réelles : pas d'intersection
+		if (delta < 0)
+		{
+			intersection = {false, N, -1};
+			return intersection;
+		}
 
-        /* 
+		/* 
 		A partir de ici, delta >= 0
 
 		On calcule les deux valeurs de l'intersection. Si t est négatif, 
@@ -107,65 +118,97 @@ public:
 
 		*/
 
-        double t1 = (-b - sqrt(delta)) / (2 * a);
-        double t2 = (-b + sqrt(delta)) / (2 * a);
+		double t1 = (-b - sqrt(delta)) / (2 * a);
+		double t2 = (-b + sqrt(delta)) / (2 * a);
 
-        // Cas t1 < t2 < 0 : les deux intersections sont derrière la caméra
-        if (t2 < 0)
-            return false;
+		// Cas t1 < t2 < 0 : les deux intersections sont derrière la caméra
+		if (t2 < 0)
+		{
+			intersection = {false, N, -1};
+			return intersection;
+		}
 
-        else
-            return true;
-    }
+		// A partir de ici, t2 >= 0, on s'intéresse qu'à la valeur de t1.
 
-    // Fonction qui calcule le vecteur normal étant donné un point
-    Vector getNormalVector(const Vector &point) const
-    {
-        Vector normalVector = (point - O);
-        normalVector.normalize();
-        return normalVector;
-    }
+		// Cas t1 < 0 <= t2 : seul t2 donne une intersection devant la caméra.
+		if (t1 < 0)
+		{
+			N = r.C + t2 * r.u;
+			intersection = {true, N, t2};
+			return intersection;
+		}
 
-    Vector O;
-    double R;
+		// Cas 0 <= t1 <= t2 : t1 donne l'intersection la plus proche.
+		else
+		{
+			N = r.C + t1 * r.u;
+			intersection = {true, N, t1};
+			return intersection;
+		}
+	}
+
+	// Fonction qui calcule le vecteur normal étant donné un point
+	Vector getNormalVector(const Vector &point) const
+	{
+		Vector normalVector = (point - O);
+		normalVector.normalize();
+		return normalVector;
+	}
+
+	Vector O;
+	double R;
+	Vector rho;
 };
 
 int main()
 {
-    int W = 1024;
-    int H = 1024;
+	int W = 1024;
+	int H = 1024;
 
-    Vector O(0, 0, 0), C(0, 0, 55);
-    double R(10);
+	Vector O(0, 0, 0), C(0, 0, 55), L(-10, 20, 40);
+	double R(10);
+	Vector rho(0.5, 0.5, 0.5);
+	double I(1000);
 
-    double fov = 60 * M_PI / 180;
-    double tanfov2 = tan(fov / 2);
+	double fov = 60 * M_PI / 180;
+	double tanfov2 = tan(fov / 2);
 
-    Sphere s(O, R);
+	Sphere s(O, R, rho);
 
-    std::vector<unsigned char> image(W * H * 3, 0);
-    for (int i = 0; i < H; i++)
-    {
-        for (int j = 0; j < W; j++)
-        {
-            Vector u(j - W / 2 + 0.5, H - i - H / 2 + 0.5, -W / (2 * tanfov2));
-            u.normalize();
-            Ray r(C, u);
+	std::vector<unsigned char> image(W * H * 3, 0);
+	for (int i = 0; i < H; i++)
+	{
+		for (int j = 0; j < W; j++)
+		{
+			Vector u(j - W / 2 + 0.5, H - i - H / 2 + 0.5, -W / (2 * tanfov2));
+			u.normalize();
+			Ray r(C, u);
 
-            image[(i * W + j) * 3 + 0] = 0;
-            image[(i * W + j) * 3 + 1] = 0;
-            image[(i * W + j) * 3 + 2] = 0;
+			image[(i * W + j) * 3 + 0] = 0;
+			image[(i * W + j) * 3 + 1] = 0;
+			image[(i * W + j) * 3 + 2] = 0;
 
-            if (s.intersect(r))
-            {
-                for (int k = 0; k < 3; k++)
-                {
-                    image[(i * W + j) * 3 + k] = 255;
-                }
-            }
-        }
-    }
-    stbi_write_png("image.png", W, H, 3, &image[0], 0);
+			Intersection intersection;
+			intersection = s.intersect(r);
 
-    return 0;
+			if (intersection.exists)
+			{
+				Vector P = intersection.point;
+				Vector l = L - P;
+				l.normalize();
+				Vector n = s.getNormalVector(P);
+
+				Vector scale;
+				scale = s.rho * I * std::max(0., dot(l, n)) / l.norm2() / M_PI;
+
+				for (int k = 0; k < 3; k++)
+				{
+					image[(i * W + j) * 3 + k] = std::min(255., scale[k]);
+				}
+			}
+		}
+	}
+	stbi_write_png("image.png", W, H, 3, &image[0], 0);
+
+	return 0;
 }
