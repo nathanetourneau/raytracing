@@ -29,10 +29,17 @@ struct LightSource
     Vector origin;
 };
 
+struct Matter
+{
+    Vector albedo;
+    bool mirror;
+    bool transparent;
+};
+
 class Sphere
 {
 public:
-    explicit Sphere(const Vector &origin, const double radius, const Vector &albedo) : origin(origin), radius(radius), rho(albedo){};
+    explicit Sphere(const Vector &origin, const double radius, const Matter &matter) : origin(origin), radius(radius), matter(matter){};
 
     Intersection intersect(const Ray &r) const
     {
@@ -84,7 +91,7 @@ public:
 
     Vector origin;
     double radius;
-    Vector rho;
+    Matter matter;
 };
 
 struct IntersectionWithScene
@@ -151,44 +158,49 @@ int main()
     const double epsilon(0.001); // Pour corriger les bugs liés à la précision numérique
 
     // Création de la scène
-    Scene scenery;
-    scenery = Scene();
-    scenery.light = lightSource;
+    Scene scene;
+    scene = Scene();
+    scene.light = lightSource;
 
     // Sphère principale
     Vector rhoMain(0.8, 0.8, 0.8); // Albédo de la sphère cible
-    double RMain(10);              // Rayon de la sphère cible
-    Sphere sMain(originPoint, RMain, rhoMain);
+    Matter matterMain({rhoMain, false, false});
+    double radiusMain(10); // Rayon de la sphère cible
+    Sphere sMain(originPoint, radiusMain, matterMain);
 
     // Sphère devant la caméra (verte)
     Vector rhoFront(0.5, 1., 0.5); // Albédo de la boule verte
+    Matter matterFront({rhoFront, false, false});
     Vector originFront(0, 0, -1000);
-    double RFront(940); // Rayon de la boule verte
-    Sphere sFront(originFront, RFront, rhoFront);
+    double radiusFront(940); // Rayon de la boule verte
+    Sphere sFront(originFront, radiusFront, matterFront);
 
     // Sphère derrière la caméra (magenta)
     Vector rhoBack(1., 0.5, 1.); // Albédo de la boule magenta
+    Matter matterBack({rhoBack, false, false});
     Vector originBack(0, 0, 1000);
-    double RBack(940); // Rayon de la boule magenta
-    Sphere sBack(originBack, RBack, rhoBack);
+    double radiusBack(940); // Rayon de la boule magenta
+    Sphere sBack(originBack, radiusBack, matterBack);
 
     // Sphère en haut (rouge)
     Vector rhoUp(1., 0.5, 0.5); // Albédo de la boule rouge
+    Matter matterUp({rhoUp, false, false});
     Vector originUp(0, 1000, 0);
-    double RUp(940); // Rayon de la boule rouge
-    Sphere sUp(originUp, RUp, rhoUp);
+    double radiusUp(940); // Rayon de la boule rouge
+    Sphere sUp(originUp, radiusUp, matterUp);
 
     // Sphère en bas (bleue)
     Vector rhoDown(0.5, 0.5, 1.); // Albédo de la boule bleue
+    Matter matterDown({rhoDown, false, false});
     Vector originDown(0, -1000, 0);
-    double RDown(990); // Rayon de la boule verte
-    Sphere sDown(originDown, RDown, rhoDown);
+    double radiusDown(990); // Rayon de la boule verte
+    Sphere sDown(originDown, radiusDown, matterDown);
 
-    scenery.addSphere(sMain);
-    scenery.addSphere(sFront);
-    scenery.addSphere(sBack);
-    scenery.addSphere(sUp);
-    scenery.addSphere(sDown);
+    scene.addSphere(sMain);
+    scene.addSphere(sFront);
+    scene.addSphere(sBack);
+    scene.addSphere(sUp);
+    scene.addSphere(sDown);
 
     Sphere intersectingSphere(sMain); // TODO: fix the bug to remove (sMain) from the constructor
 
@@ -206,12 +218,12 @@ int main()
             image[(i * W + j) * 3 + 2] = 0;
 
             IntersectionWithScene intersection;
-            intersection = scenery.intersect(r);
+            intersection = scene.intersect(r);
 
             if (intersection.exists)
             {
                 // On calcule le vecteur normal au point d'intersection
-                intersectingSphere = scenery.spheres[intersection.sphereNumber];
+                intersectingSphere = scene.spheres[intersection.sphereNumber];
 
                 Vector intersectionPoint = intersection.intersectionPoint;
                 Vector normalVector = intersectingSphere.getNormalVector(intersectionPoint); // Normalisé
@@ -228,19 +240,18 @@ int main()
 
                 // Intersection avec la scène
                 IntersectionWithScene intersectionGoingToLight;
-                intersectionGoingToLight = scenery.intersect(rayGoingToLight);
+                intersectionGoingToLight = scene.intersect(rayGoingToLight);
 
                 /* On teste la présence d'une ombre : s'il y a une intersection, 
                 est-elle plus proche que la source de lumière ? */
                 bool hasShadow;
                 // L'évaluation du && est paresseuse
-                hasShadow = intersectionGoingToLight.exists && (pow(intersectionGoingToLight.t, 2) < dSquared);
+                hasShadow = intersectionGoingToLight.exists && (std::pow(intersectionGoingToLight.t, 2) < dSquared);
 
                 double visibility(hasShadow ? 0. : 1.); // 0 si ombre, 1 sinon
 
                 Vector scale;
-                scale = intersectingSphere.rho * scenery.light.intensity * std::max(0., dot(goingToLightVector, normalVector)) / dSquared / M_PI;
-                scale = visibility * scale;
+                scale = visibility * intersectingSphere.matter.albedo * scene.light.intensity * std::max(0., dot(goingToLightVector, normalVector)) / dSquared / M_PI;
 
                 for (int k = 0; k < 3; k++)
                 {
