@@ -23,16 +23,22 @@ struct Intersection
     double t;
 };
 
+struct LightSource
+{
+    double intensity;
+    Vector origin;
+};
+
 class Sphere
 {
 public:
-    explicit Sphere(const Vector &origin, double radius, Vector &albedo) : O(origin), R(radius), rho(albedo){};
+    explicit Sphere(const Vector &origin, const double radius, const Vector &albedo) : origin(origin), radius(radius), rho(albedo){};
 
     Intersection intersect(const Ray &r) const
     {
         double a = 1;
-        double b = 2 * dot(r.u, r.C - O);
-        double c = dot(r.C - O, r.C - O) - R * R;
+        double b = 2 * dot(r.u, r.C - origin);
+        double c = dot(r.C - origin, r.C - origin) - radius * radius;
 
         double delta = b * b - 4 * a * c;
 
@@ -71,13 +77,13 @@ public:
     // Fonction qui calcule le vecteur normal étant donné un point
     Vector getNormalVector(Vector &point) const
     {
-        Vector normalVector = (point - O);
+        Vector normalVector = (point - origin);
         normalVector.normalize();
         return normalVector;
     }
 
-    Vector O;
-    double R;
+    Vector origin;
+    double radius;
     Vector rho;
 };
 
@@ -94,12 +100,12 @@ class Scene
 public:
     explicit Scene(){};
 
-    void addSphere(Sphere sphere)
+    void addSphere(const Sphere &sphere)
     {
         spheres.push_back(sphere);
     }
 
-    IntersectionWithScene intersect(const Ray &r)
+    IntersectionWithScene intersect(const Ray &r) const
     {
         double minimalTSoFar(std::numeric_limits<int>::max());
         bool hasIntersection(false);
@@ -123,6 +129,8 @@ public:
     }
 
     std::vector<Sphere> spheres;
+
+    LightSource light;
 };
 
 int main()
@@ -133,20 +141,24 @@ int main()
     double fov = 60 * M_PI / 180;
     double tanfov2 = tan(fov / 2);
 
-    Vector O(0, 0, 0);              // Position de l'image
-    Vector C(0, 0, 55);             // Position de la caméra
-    Vector lightPoint(-10, 20, 40); // Position de la source de lumière
-    double I(1000000);              // Intensité de la source de lumière
-    const double epsilon(0.001);    // Pour corriger les bugs liés à la précision numérique
+    Vector originPoint(0, 0, 0);  // Position de l'image
+    Vector cameraPoint(0, 0, 55); // Position de la caméra
+
+    Vector lightPoint(-10, 20, 40);   // Position de la source de lumière
+    double lightIntensity(100000000); // Intensité de la source de lumière
+    LightSource lightSource({lightIntensity, lightPoint});
+
+    const double epsilon(0.001); // Pour corriger les bugs liés à la précision numérique
 
     // Création de la scène
     Scene scenery;
     scenery = Scene();
+    scenery.light = lightSource;
 
     // Sphère principale
     Vector rhoMain(0.8, 0.8, 0.8); // Albédo de la sphère cible
     double RMain(10);              // Rayon de la sphère cible
-    Sphere sMain(O, RMain, rhoMain);
+    Sphere sMain(originPoint, RMain, rhoMain);
 
     // Sphère devant la caméra (verte)
     Vector rhoFront(0.5, 1., 0.5); // Albédo de la boule verte
@@ -187,7 +199,7 @@ int main()
         {
             Vector u(j - W / 2 + 0.5, H - i - H / 2 + 0.5, -W / (2 * tanfov2));
             u.normalize();
-            Ray r(C, u);
+            Ray r(cameraPoint, u);
 
             image[(i * W + j) * 3 + 0] = 0;
             image[(i * W + j) * 3 + 1] = 0;
@@ -227,12 +239,12 @@ int main()
                 double visibility(hasShadow ? 0. : 1.); // 0 si ombre, 1 sinon
 
                 Vector scale;
-                scale = intersectingSphere.rho * I * std::max(0., dot(goingToLightVector, normalVector)) / dSquared / M_PI;
+                scale = intersectingSphere.rho * scenery.light.intensity * std::max(0., dot(goingToLightVector, normalVector)) / dSquared / M_PI;
                 scale = visibility * scale;
 
                 for (int k = 0; k < 3; k++)
                 {
-                    image[(i * W + j) * 3 + k] = std::min(255., scale[k]);
+                    image[(i * W + j) * 3 + k] = std::min(255., std::pow(scale[k], 1. / 2.2));
                 }
             }
         }
