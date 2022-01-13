@@ -69,7 +69,7 @@ Vector cross(const Vector &a, const Vector &b)
 class Ray
 {
 public:
-    Ray(const Vector &origin, const Vector &direction) : C(origin), u(direction){};
+    explicit Ray(const Vector &origin, const Vector &direction) : C(origin), u(direction){};
     Vector C, u;
 };
 
@@ -83,7 +83,7 @@ struct Intersection
 class Sphere
 {
 public:
-    Sphere(const Vector &origin, double radius, Vector &albedo) : O(origin), R(radius), rho(albedo){};
+    explicit Sphere(const Vector &origin, double radius, Vector &albedo) : O(origin), R(radius), rho(albedo){};
 
     Intersection intersect(const Ray &r) const
     {
@@ -149,7 +149,7 @@ struct IntersectionWithScene
 class Scene
 {
 public:
-    Scene(){};
+    explicit Scene(){};
 
     void addSphere(Sphere sphere)
     {
@@ -193,7 +193,7 @@ int main()
     Vector O(0, 0, 0);     // Position de l'image
     Vector C(0, 0, 55);    // Position de la caméra
     Vector L(-10, 20, 40); // Position de la source de lumière
-    double I(1000);        // Intensité de la source de lumière
+    double I(1000000);     // Intensité de la source de lumière
 
     // Création de la scène
     Scene scenery;
@@ -205,25 +205,25 @@ int main()
     Sphere sMain(O, RMain, rhoMain);
 
     // Sphère devant la caméra (verte)
-    Vector rhoFront(0.3, 0.4, 0.3); // Albédo de la boule verte
+    Vector rhoFront(0.5, 1., 0.5); // Albédo de la boule verte
     Vector originFront(0, 0, -1000);
     double RFront(940); // Rayon de la boule verte
     Sphere sFront(originFront, RFront, rhoFront);
 
     // Sphère derrière la caméra (magenta)
-    Vector rhoBack(0.4, 0.3, 0.4); // Albédo de la boule magenta
+    Vector rhoBack(1., 0.5, 1.); // Albédo de la boule magenta
     Vector originBack(0, 0, 1000);
     double RBack(940); // Rayon de la boule magenta
     Sphere sBack(originBack, RBack, rhoBack);
 
     // Sphère en haut (rouge)
-    Vector rhoUp(0.4, 0.3, 0.3); // Albédo de la boule rouge
+    Vector rhoUp(1., 0.5, 0.5); // Albédo de la boule rouge
     Vector originUp(0, 1000, 0);
     double RUp(940); // Rayon de la boule rouge
     Sphere sUp(originUp, RUp, rhoUp);
 
     // Sphère en bas (bleue)
-    Vector rhoDown(0.3, 0.3, 0.4); // Albédo de la boule bleue
+    Vector rhoDown(0.5, 0.5, 1.); // Albédo de la boule bleue
     Vector originDown(0, -1000, 0);
     double RDown(990); // Rayon de la boule verte
     Sphere sDown(originDown, RDown, rhoDown);
@@ -262,10 +262,11 @@ int main()
 
                 // Vecteur reliant l'intersection et la source
                 Vector l = L - P;
+                double dSquared = l.norm2();
                 l.normalize(); // Normalisé
 
                 Vector scale;
-                scale = intersectingSphere.rho * I * std::max(0., dot(l, n)) / l.norm2() / M_PI;
+                scale = intersectingSphere.rho * I * std::max(0., dot(l, n)) / dSquared / M_PI;
 
                 for (int k = 0; k < 3; k++)
                 {
