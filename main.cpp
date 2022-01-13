@@ -193,7 +193,8 @@ int main()
     Vector O(0, 0, 0);              // Position de l'image
     Vector C(0, 0, 55);             // Position de la caméra
     Vector lightPoint(-10, 20, 40); // Position de la source de lumière
-    double I(1000000);              // Intensité de la source de lumière
+    double I(2000000);              // Intensité de la source de lumière
+    const double epsilon(0.001);    // Pour corriger les bugs liés à la précision numérique
 
     // Création de la scène
     Scene scenery;
@@ -267,8 +268,8 @@ int main()
 
                 // Calcul de la fonction de visibilité
 
-                // Rayon partant de l'intersection vers la lumière
-                Ray rayGoingToLight(intersectionPoint, goingToLightVector);
+                // Rayon partant de l'intersection vers la lumière, légèrement décollé pour pallier les problèmes de précision numérique
+                Ray rayGoingToLight(intersectionPoint + epsilon * goingToLightVector, goingToLightVector);
 
                 // Intersection avec la scène
                 IntersectionWithScene intersectionGoingToLight;
