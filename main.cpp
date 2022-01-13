@@ -190,10 +190,10 @@ int main()
     double fov = 60 * M_PI / 180;
     double tanfov2 = tan(fov / 2);
 
-    Vector O(0, 0, 0);     // Position de l'image
-    Vector C(0, 0, 55);    // Position de la caméra
-    Vector L(-10, 20, 40); // Position de la source de lumière
-    double I(1000000);     // Intensité de la source de lumière
+    Vector O(0, 0, 0);              // Position de l'image
+    Vector C(0, 0, 55);             // Position de la caméra
+    Vector lightPoint(-10, 20, 40); // Position de la source de lumière
+    double I(1000000);              // Intensité de la source de lumière
 
     // Création de la scène
     Scene scenery;
@@ -257,16 +257,34 @@ int main()
                 // On calcule le vecteur normal au point d'intersection
                 intersectingSphere = scenery.spheres[intersection.sphereNumber];
 
-                Vector P = intersection.intersectionPoint;
-                Vector n = intersectingSphere.getNormalVector(P); // Normalisé
+                Vector intersectionPoint = intersection.intersectionPoint;
+                Vector normalVector = intersectingSphere.getNormalVector(intersectionPoint); // Normalisé
 
                 // Vecteur reliant l'intersection et la source
-                Vector l = L - P;
-                double dSquared = l.norm2();
-                l.normalize(); // Normalisé
+                Vector goingToLightVector = lightPoint - intersectionPoint;
+                double dSquared = goingToLightVector.norm2();
+                goingToLightVector.normalize(); // Normalisé
+
+                // Calcul de la fonction de visibilité
+
+                // Rayon partant de l'intersection vers la lumière
+                Ray rayGoingToLight(intersectionPoint, goingToLightVector);
+
+                // Intersection avec la scène
+                IntersectionWithScene intersectionGoingToLight;
+                intersectionGoingToLight = scenery.intersect(rayGoingToLight);
+
+                /* On teste la présence d'une ombre : s'il y a une intersection, 
+                est-elle plus proche que la source de lumière ? */
+                bool hasShadow;
+                // L'évaluation du && est paresseuse
+                hasShadow = intersectionGoingToLight.exists && (pow(intersectionGoingToLight.t, 2) < dSquared);
+
+                double visibility(hasShadow ? 0. : 1.); // 0 si ombre, 1 sinon
 
                 Vector scale;
-                scale = intersectingSphere.rho * I * std::max(0., dot(l, n)) / dSquared / M_PI;
+                scale = intersectingSphere.rho * I * std::max(0., dot(goingToLightVector, normalVector)) / dSquared / M_PI;
+                scale = visibility * scale;
 
                 for (int k = 0; k < 3; k++)
                 {
