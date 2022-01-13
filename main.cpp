@@ -261,6 +261,6 @@ int main()
         }
     }
 
-    stbi_write_png("image.png", W, H, 3, &image[0], 0);
+    stbi_write_png("output.png", W, H, 3, &image[0], 0);
     return 0;
 }
