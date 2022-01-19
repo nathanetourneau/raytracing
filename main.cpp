@@ -9,7 +9,7 @@
 
 #include "Vector.h"
 
-const double epsilon(0.001); // Pour corriger les bugs liés à la précision numérique
+const double epsilon(0.01); // Pour corriger les bugs liés à la précision numérique
 
 const int maxReflectionNumber(5);
 
@@ -34,6 +34,7 @@ struct Matter
     Vector albedo;
     bool mirror;
     bool transparent;
+    double n;
 };
 
 struct Intersection
@@ -149,29 +150,29 @@ public:
 
     Vector getColor(Ray r, int reflectionNumber) const
     {
-        if (reflectionNumber == 0)
-            return Vector(0, 0, 0);
         Vector color(0, 0, 0);
+
+        if (reflectionNumber == maxReflectionNumber)
+            return color;
 
         IntersectionWithScene currentIntersection;
         currentIntersection = this->intersect(r);
+
         if (currentIntersection.exists)
         {
+            Vector intersectionPoint = currentIntersection.point;
             Sphere intersectingSphere(spheres[currentIntersection.sphereNumber]);
+            Vector normalVector = intersectingSphere.getNormalVector(intersectionPoint); // Normalisé
 
             if (intersectingSphere.matter.mirror)
             {
-                Vector normalVector = intersectingSphere.getNormalVector(currentIntersection.point);
                 Vector reflectedDirection = r.direction + (-2) * dot(r.direction, normalVector) * normalVector;
-                Ray reflectedRay(r.origin + epsilon * normalVector, reflectedDirection);
-                color = getColor(reflectedRay, reflectionNumber - 1);
+                Ray reflectedRay(intersectionPoint + epsilon * normalVector, reflectedDirection);
+                color = getColor(reflectedRay, reflectionNumber + 1);
             }
 
             else
             {
-                Vector intersectionPoint = currentIntersection.point;
-                Vector normalVector = intersectingSphere.getNormalVector(intersectionPoint); // Normalisé
-
                 // Vecteur reliant l'intersection et la source
                 Vector goingToLightVector = light.origin - intersectionPoint;
                 double dSquared = goingToLightVector.norm2();
@@ -194,7 +195,6 @@ public:
 
                 double visibility(hasShadow ? 0. : 1.); // 0 si ombre, 1 sinon
 
-                Vector scale;
                 color = visibility * intersectingSphere.matter.albedo * this->light.intensity * std::max(0., dot(goingToLightVector, normalVector)) / dSquared / M_PI;
             }
         }
@@ -202,8 +202,8 @@ public:
     }
 
     std::vector<Sphere> spheres;
-
     LightSource light;
+    double n;
 };
 
 int main()
@@ -211,51 +211,65 @@ int main()
     Vector originPoint(0, 0, 0);  // Position de l'image
     Vector cameraPoint(0, 0, 55); // Position de la caméra
 
-    Vector lightPoint(-10, 20, 40);   // Position de la source de lumière
-    double lightIntensity(600000000); // Intensité de la source de lumière
+    Vector lightPoint(-10, 20, 40);    // Position de la source de lumière
+    double lightIntensity(1000000000); // Intensité de la source de lumière
     LightSource lightSource({lightIntensity, lightPoint});
 
     // Sphère principale
     Vector rhoMain(1, 1, 1); // Albédo de la sphère cible
-    Matter matterMain({rhoMain, true, false});
-    Vector originMain(15, 5, 0);
+    Matter matterMain({rhoMain, true, false, 1.4});
+    Vector originMain(0, 0, 0);
     double radiusMain(10); // Rayon de la sphère cible
     Sphere sMain(originMain, radiusMain, matterMain);
 
     // Sphère secondaire
     Vector rhoBis(1, 1, 1); // Albédo de la sphère cible
-    Matter matterBis({rhoMain, true, false});
-    Vector originBis(-15, 5, 0);
-    double radiusBis(10); // Rayon de la sphère cible
+    Matter matterBis({rhoMain, false, false, 1.4});
+    Vector originBis(5, 0, 13);
+    double radiusBis(3); // Rayon de la sphère cible
     Sphere sBis(originBis, radiusBis, matterBis);
 
-    // Sphère devant la caméra (verte)
-    Vector rhoFront(0, 1, 0); // Albédo de la boule verte
-    Matter matterFront({rhoFront, false, false});
+    // Sphère devant la caméra (magenta)
+    Vector rhoFront(1, 0, 1); // Albédo de la boule magenta
+    Matter matterFront({rhoFront, false, false, 1.4});
     Vector originFront(0, 0, -1000);
-    double radiusFront(940); // Rayon de la boule verte
+    double radiusFront(940); // Rayon de la boule magenta
     Sphere sFront(originFront, radiusFront, matterFront);
 
-    // Sphère derrière la caméra (magenta)
-    Vector rhoBack(1, 0, 1); // Albédo de la boule magenta
-    Matter matterBack({rhoBack, false, false});
+    // Sphère derrière la caméra (cyan)
+    Vector rhoBack(0, 1, 1); // Albédo de la boule cyan
+    Matter matterBack({rhoBack, false, false, 1.4});
     Vector originBack(0, 0, 1000);
-    double radiusBack(940); // Rayon de la boule magenta
+    double radiusBack(940); // Rayon de la boule cyan
     Sphere sBack(originBack, radiusBack, matterBack);
 
-    // Sphère en haut (rouge)
-    Vector rhoUp(1, 0, 0); // Albédo de la boule rouge
-    Matter matterUp({rhoUp, false, false});
+    // Sphère en haut (blanche)
+    Vector rhoUp(1, 1, 1); // Albédo de la boule blanche
+    Matter matterUp({rhoUp, false, false, 1.4});
     Vector originUp(0, 1000, 0);
-    double radiusUp(940); // Rayon de la boule rouge
+    double radiusUp(940); // Rayon de la boule blanche
     Sphere sUp(originUp, radiusUp, matterUp);
 
-    // Sphère en bas (bleue)
-    Vector rhoDown(0, 0, 1); // Albédo de la boule bleue
-    Matter matterDown({rhoDown, false, false});
+    // Sphère en bas (blanche)
+    Vector rhoDown(1, 1, 1); // Albédo de la boule blanche
+    Matter matterDown({rhoDown, false, false, 1.4});
     Vector originDown(0, -1000, 0);
-    double radiusDown(990); // Rayon de la boule verte
+    double radiusDown(990); // Rayon de la boule blanche
     Sphere sDown(originDown, radiusDown, matterDown);
+
+    // Sphère à gauche (vert)
+    Vector rhoLeft(0, 1, 0); // Albédo de la boule verte
+    Matter matterLeft({rhoLeft, false, false, 1.4});
+    Vector originLeft(-1000, 0, 0);
+    double radiusLeft(940); // Rayon de la boule verte
+    Sphere sLeft(originLeft, radiusLeft, matterLeft);
+
+    // Sphère à droite (rouge)
+    Vector rhoRight(1, 0, 0); // Albédo de la boule rouge
+    Matter matterRight({rhoRight, false, false, 1.4});
+    Vector originRight(1000, 0, 0);
+    double radiusRight(940); // Rayon de la boule rouge
+    Sphere sRight(originRight, radiusRight, matterRight);
 
     // Création de la scène
     Scene scene;
@@ -263,11 +277,13 @@ int main()
     scene.addLight(lightSource);
 
     scene.addSphere(sMain);
-    scene.addSphere(sBis);
+    //scene.addSphere(sBis);
     scene.addSphere(sFront);
-    //scene.addSphere(sBack);
+    scene.addSphere(sBack);
     scene.addSphere(sUp);
     scene.addSphere(sDown);
+    scene.addSphere(sLeft);
+    scene.addSphere(sRight);
 
     Sphere intersectingSphere(sMain); // TODO: fix the bug to remove (sMain) from the constructor
 
@@ -288,7 +304,7 @@ int main()
             IntersectionWithScene intersection;
 
             Vector color;
-            color = scene.getColor(r, maxReflectionNumber);
+            color = scene.getColor(r, 0);
 
             for (int k = 0; k < 3; k++)
             {
@@ -298,5 +314,6 @@ int main()
     }
 
     stbi_write_png("output.png", W, H, 3, &image[0], 0);
+
     return 0;
 }
