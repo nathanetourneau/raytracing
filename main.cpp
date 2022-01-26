@@ -186,8 +186,8 @@ public:
 
                 if (cosAngle < 0) // On rentre dans la sphère
                 {
-                    n1 = this->n;                     //env
-                    n2 = intersectingSphere.matter.n; //sphere
+                    n1 = this->n;
+                    n2 = intersectingSphere.matter.n;
                 }
 
                 else // On sort de la sphère
@@ -195,7 +195,7 @@ public:
                     n1 = intersectingSphere.matter.n;
                     n2 = this->n;
                     normalVector = (-1) * normalVector;
-                    cosAngle = dot(r.direction, normalVector);
+                    cosAngle = -cosAngle;
                 }
 
                 double insideSquareRoot = 1 - pow(n1 / n2, 2) * (1 - pow(cosAngle, 2));
@@ -249,50 +249,31 @@ public:
                 // Eclairage indirect
 
                 // Obtention d'une base avec deux vecteurs tangentiels
-                Vector firstTangentialVector = Vector(0, 0, 0);
-
-                if ((normalVector[2] < normalVector[0]) & (normalVector[2] < normalVector[1]))
-                {
-                    firstTangentialVector[0] = -normalVector[1];
-                    firstTangentialVector[1] = normalVector[0];
-                    firstTangentialVector[2] = 0;
-                }
-                else if ((normalVector[1] < normalVector[0]) & (normalVector[1] < normalVector[2]))
-                {
-                    firstTangentialVector[0] = normalVector[2];
-                    firstTangentialVector[1] = 0;
-                    firstTangentialVector[2] = -normalVector[0];
-                }
-                else
-                {
-                    firstTangentialVector[0] = 0;
-                    firstTangentialVector[1] = normalVector[2];
-                    firstTangentialVector[2] = -normalVector[1];
-                }
-
+                auto engine = rng[omp_get_thread_num()];
+                Vector randomVector = Vector(uniform(engine) - 0.5, uniform(engine) - 0.5, uniform(engine) - 0.5);
+                Vector firstTangentialVector = cross(normalVector, randomVector);
+                firstTangentialVector.normalize();
                 Vector secondTangentialVector = cross(normalVector, firstTangentialVector);
 
-                firstTangentialVector.normalize();
-                secondTangentialVector.normalize();
-
                 // Génération des composantes aléatoires
-                double u = uniform(rng[omp_get_thread_num()]);
-                double v = uniform(rng[omp_get_thread_num()]);
+                double u = uniform(engine);
+                double v = uniform(engine);
+                double s = sqrt(1 - v);
 
-                double x = cos(2 * M_PI * u) * sqrt(1 - v);
-                double y = sin(2 * M_PI * u) * sqrt(1 - v);
+                double x = cos(2 * M_PI * u) * s;
+                double y = sin(2 * M_PI * u) * s;
                 double z = sqrt(v);
 
                 // Génération du vecteur aléatoire
                 Vector randomDirection = x * firstTangentialVector + y * secondTangentialVector + z * normalVector;
                 randomDirection.normalize();
-                Ray randomVector(intersectionPoint + epsilon * normalVector, randomDirection);
+                Ray randomRay(intersectionPoint + epsilon * normalVector, randomDirection);
 
-                return color + intersectingSphere.matter.albedo * getColor(randomVector, reflectionNumber + 1);
+                return color + intersectingSphere.matter.albedo * getColor(randomRay, reflectionNumber + 1);
             }
         }
 
-        // Cas sans intersection, color est par défaut à 0
+        // Cas sans intersection, color est par défaut à (0, 0, 0)
         return color;
     }
 
@@ -312,7 +293,7 @@ int main()
 
     // Sphère principale
     Vector rhoMain(1, 1, 1); // Albédo de la sphère cible
-    Matter matterMain({rhoMain, false, true, 1.3});
+    Matter matterMain({rhoMain, false, false, 1.3});
     Vector originMain(0, 0, 0);
     double radiusMain(10); // Rayon de la sphère cible
     Sphere sMain(originMain, radiusMain, matterMain);
@@ -385,7 +366,7 @@ int main()
     double fov = 60 * M_PI / 180;
     double tanfov2 = tan(fov / 2);
 
-    int maxRaysForMonteCarlo(100);
+    int maxRaysForMonteCarlo(128);
 
     std::vector<unsigned char> image(width * height * 3, 0);
 
