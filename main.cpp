@@ -7,14 +7,21 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#include <random>
+#include <cmath>
+#include <omp.h>
+
 #include "Vector.h"
+
+std::default_random_engine rng[4];
+std::uniform_real_distribution<double> uniform(0., 1.);
 
 const double epsilon(0.01); // Pour corriger les bugs liés à la précision numérique
 
 const int maxReflectionNumber(5);
 
-const int W = 1024;
-const int H = 1024;
+const int width = 1024;
+const int height = 1024;
 
 class Ray
 {
@@ -196,7 +203,7 @@ public:
                 if (insideSquareRoot < 0)
                 {
                     Vector reflectedDirection = r.direction + (-2) * dot(r.direction, normalVector) * normalVector;
-                    Ray reflectedRay(currentIntersection.point + epsilon * normalVector, reflectedDirection);
+                    Ray reflectedRay(intersectionPoint + epsilon * normalVector, reflectedDirection);
                     return getColor(reflectedRay, reflectionNumber + 1);
                 }
 
@@ -208,7 +215,7 @@ public:
                     normalComponent = -sqrt(insideSquareRoot) * normalVector;
 
                     Vector refractedDirection = normalComponent + tangentialComponent;
-                    Ray refractedRay(currentIntersection.point - epsilon * normalVector, refractedDirection);
+                    Ray refractedRay(intersectionPoint - epsilon * normalVector, refractedDirection);
                     return getColor(refractedRay, reflectionNumber + 1);
                 }
             }
@@ -238,8 +245,54 @@ public:
                 double visibility(hasShadow ? 0. : 1.); // 0 si ombre, 1 sinon
 
                 color = visibility * intersectingSphere.matter.albedo * this->light.intensity * std::max(0., dot(goingToLightVector, normalVector)) / dSquared / M_PI;
+
+                // Eclairage indirect
+
+                // Obtention d'une base avec deux vecteurs tangentiels
+                Vector firstTangentialVector = Vector(0, 0, 0);
+
+                if ((normalVector[2] < normalVector[0]) & (normalVector[2] < normalVector[1]))
+                {
+                    firstTangentialVector[0] = -normalVector[1];
+                    firstTangentialVector[1] = normalVector[0];
+                    firstTangentialVector[2] = 0;
+                }
+                else if ((normalVector[1] < normalVector[0]) & (normalVector[1] < normalVector[2]))
+                {
+                    firstTangentialVector[0] = normalVector[2];
+                    firstTangentialVector[1] = 0;
+                    firstTangentialVector[2] = -normalVector[0];
+                }
+                else
+                {
+                    firstTangentialVector[0] = 0;
+                    firstTangentialVector[1] = normalVector[2];
+                    firstTangentialVector[2] = -normalVector[1];
+                }
+
+                Vector secondTangentialVector = cross(normalVector, firstTangentialVector);
+
+                firstTangentialVector.normalize();
+                secondTangentialVector.normalize();
+
+                // Génération des composantes aléatoires
+                double u = uniform(rng[omp_get_thread_num()]);
+                double v = uniform(rng[omp_get_thread_num()]);
+
+                double x = cos(2 * M_PI * u) * sqrt(1 - v);
+                double y = sin(2 * M_PI * u) * sqrt(1 - v);
+                double z = sqrt(v);
+
+                // Génération du vecteur aléatoire
+                Vector randomDirection = x * firstTangentialVector + y * secondTangentialVector + z * normalVector;
+                randomDirection.normalize();
+                Ray randomVector(intersectionPoint + epsilon * normalVector, randomDirection);
+
+                return color + intersectingSphere.matter.albedo * getColor(randomVector, reflectionNumber + 1);
             }
         }
+
+        // Cas sans intersection, color est par défaut à 0
         return color;
     }
 
@@ -332,30 +385,40 @@ int main()
     double fov = 60 * M_PI / 180;
     double tanfov2 = tan(fov / 2);
 
-    std::vector<unsigned char> image(W * H * 3, 0);
-    for (int i = 0; i < H; i++)
+    int maxRaysForMonteCarlo(100);
+
+    std::vector<unsigned char> image(width * height * 3, 0);
+
+#pragma omp parallel for
+    for (int i = 0; i < height; i++)
     {
-        for (int j = 0; j < W; j++)
+        for (int j = 0; j < width; j++)
         {
-            // Direction du rayon lancé depuis la caméra vers le pixel en (i, j)
-            Vector u(j - W / 2 + 0.5, H - i - H / 2 + 0.5, -W / (2 * tanfov2)); // Facteur 0.5 pour être au centre d'un pixel
-            u.normalize();                                                      // On normalise la direction
-            Ray r(cameraPoint, u);                                              // On crée le rayon
+            Vector color(0);
 
-            // On cherche ensuite si le rayon intersecte la scène
-            IntersectionWithScene intersection;
+            for (int rayNumber = 0; rayNumber < maxRaysForMonteCarlo; rayNumber++)
+            {
+                // Direction du rayon lancé depuis la caméra vers le pixel en (i, j)
+                Vector u(j - width / 2 + 0.5, height - i - height / 2 + 0.5, -width / (2 * tanfov2)); // Facteur 0.5 pour être au centre d'un pixel
+                u.normalize();                                                                        // On normalise la direction
+                Ray r(cameraPoint, u);                                                                // On crée le rayon
 
-            Vector color;
-            color = scene.getColor(r, 0);
+                // On cherche ensuite si le rayon intersecte la scène
+                IntersectionWithScene intersection;
+
+                color = color + scene.getColor(r, 0);
+            }
+
+            color = color / maxRaysForMonteCarlo;
 
             for (int k = 0; k < 3; k++)
             {
-                image[(i * W + j) * 3 + k] = std::min(255., std::pow(color[k], 1. / 2.2));
+                image[(i * width + j) * 3 + k] = std::min(255., std::pow(color[k], 1. / 2.2));
             }
         }
     }
 
-    stbi_write_png("output.png", W, H, 3, &image[0], 0);
+    stbi_write_png("output.png", width, height, 3, &image[0], 0);
 
     return 0;
 }
