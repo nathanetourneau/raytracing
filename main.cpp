@@ -113,7 +113,7 @@ struct IntersectionWithScene
 class Scene
 {
 public:
-    explicit Scene(){};
+    explicit Scene() : n(1.){};
 
     void addSphere(const Sphere &sphere)
     {
@@ -168,7 +168,49 @@ public:
             {
                 Vector reflectedDirection = r.direction + (-2) * dot(r.direction, normalVector) * normalVector;
                 Ray reflectedRay(intersectionPoint + epsilon * normalVector, reflectedDirection);
-                color = getColor(reflectedRay, reflectionNumber + 1);
+                return getColor(reflectedRay, reflectionNumber + 1);
+            }
+
+            else if (intersectingSphere.matter.transparent)
+            {
+                double cosAngle = dot(r.direction, normalVector);
+                double n1;
+                double n2;
+
+                if (cosAngle < 0) // On rentre dans la sphère
+                {
+                    n1 = this->n;                     //env
+                    n2 = intersectingSphere.matter.n; //sphere
+                }
+
+                else // On sort de la sphère
+                {
+                    n1 = intersectingSphere.matter.n;
+                    n2 = this->n;
+                    normalVector = (-1) * normalVector;
+                    cosAngle = dot(r.direction, normalVector);
+                }
+
+                double insideSquareRoot = 1 - pow(n1 / n2, 2) * (1 - pow(cosAngle, 2));
+
+                if (insideSquareRoot < 0)
+                {
+                    Vector reflectedDirection = r.direction + (-2) * dot(r.direction, normalVector) * normalVector;
+                    Ray reflectedRay(currentIntersection.point + epsilon * normalVector, reflectedDirection);
+                    return getColor(reflectedRay, reflectionNumber + 1);
+                }
+
+                else
+                {
+                    Vector normalComponent;
+                    Vector tangentialComponent;
+                    tangentialComponent = n1 / n2 * (r.direction - cosAngle * normalVector);
+                    normalComponent = -sqrt(insideSquareRoot) * normalVector;
+
+                    Vector refractedDirection = normalComponent + tangentialComponent;
+                    Ray refractedRay(currentIntersection.point - epsilon * normalVector, refractedDirection);
+                    return getColor(refractedRay, reflectionNumber + 1);
+                }
             }
 
             else
@@ -217,56 +259,56 @@ int main()
 
     // Sphère principale
     Vector rhoMain(1, 1, 1); // Albédo de la sphère cible
-    Matter matterMain({rhoMain, true, false, 1.4});
+    Matter matterMain({rhoMain, false, true, 1.3});
     Vector originMain(0, 0, 0);
     double radiusMain(10); // Rayon de la sphère cible
     Sphere sMain(originMain, radiusMain, matterMain);
 
     // Sphère secondaire
-    Vector rhoBis(1, 1, 1); // Albédo de la sphère cible
-    Matter matterBis({rhoMain, false, false, 1.4});
-    Vector originBis(5, 0, 13);
+    Vector rhoBis(0, 1, 0); // Albédo de la sphère cible
+    Matter matterBis({rhoMain, false, false, 1.3});
+    Vector originBis(0, 25, -15);
     double radiusBis(3); // Rayon de la sphère cible
     Sphere sBis(originBis, radiusBis, matterBis);
 
     // Sphère devant la caméra (magenta)
     Vector rhoFront(1, 0, 1); // Albédo de la boule magenta
-    Matter matterFront({rhoFront, false, false, 1.4});
+    Matter matterFront({rhoFront, false, false, 1.3});
     Vector originFront(0, 0, -1000);
     double radiusFront(940); // Rayon de la boule magenta
     Sphere sFront(originFront, radiusFront, matterFront);
 
     // Sphère derrière la caméra (cyan)
     Vector rhoBack(0, 1, 1); // Albédo de la boule cyan
-    Matter matterBack({rhoBack, false, false, 1.4});
+    Matter matterBack({rhoBack, false, false, 1.3});
     Vector originBack(0, 0, 1000);
     double radiusBack(940); // Rayon de la boule cyan
     Sphere sBack(originBack, radiusBack, matterBack);
 
     // Sphère en haut (blanche)
     Vector rhoUp(1, 1, 1); // Albédo de la boule blanche
-    Matter matterUp({rhoUp, false, false, 1.4});
+    Matter matterUp({rhoUp, false, false, 1.3});
     Vector originUp(0, 1000, 0);
     double radiusUp(940); // Rayon de la boule blanche
     Sphere sUp(originUp, radiusUp, matterUp);
 
     // Sphère en bas (blanche)
     Vector rhoDown(1, 1, 1); // Albédo de la boule blanche
-    Matter matterDown({rhoDown, false, false, 1.4});
+    Matter matterDown({rhoDown, false, false, 1.3});
     Vector originDown(0, -1000, 0);
     double radiusDown(990); // Rayon de la boule blanche
     Sphere sDown(originDown, radiusDown, matterDown);
 
     // Sphère à gauche (vert)
     Vector rhoLeft(0, 1, 0); // Albédo de la boule verte
-    Matter matterLeft({rhoLeft, false, false, 1.4});
+    Matter matterLeft({rhoLeft, false, false, 1.3});
     Vector originLeft(-1000, 0, 0);
     double radiusLeft(940); // Rayon de la boule verte
     Sphere sLeft(originLeft, radiusLeft, matterLeft);
 
     // Sphère à droite (rouge)
     Vector rhoRight(1, 0, 0); // Albédo de la boule rouge
-    Matter matterRight({rhoRight, false, false, 1.4});
+    Matter matterRight({rhoRight, false, false, 1.3});
     Vector originRight(1000, 0, 0);
     double radiusRight(940); // Rayon de la boule rouge
     Sphere sRight(originRight, radiusRight, matterRight);
