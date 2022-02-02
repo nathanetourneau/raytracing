@@ -10,10 +10,12 @@
 #include <random>
 #include <cmath>
 #include <omp.h>
+#define _USE_MATH_DEFINES
+#include<math.h>
 
 #include "Vector.h"
 
-std::default_random_engine rng[4];
+std::default_random_engine rng[8]; // Modifier par le nombre de coeurs de l'ordi
 std::uniform_real_distribution<double> uniform(0., 1.);
 
 const double epsilon(0.01); // Pour corriger les bugs liés à la précision numérique
@@ -66,7 +68,7 @@ public:
 
         Intersection intersection;
         Vector intersectionPoint;
-        double t;
+        double t(0);
 
         // Cas sans racines réelles : pas d'intersection, on renvoie n'importe quoi
         if (delta < 0)
@@ -116,6 +118,42 @@ struct IntersectionWithScene
     double t;
     int sphereNumber;
 };
+
+Vector random_cos(Vector &normalVector)
+{
+    std::default_random_engine &engine = rng[omp_get_thread_num()];
+
+    Vector firstTangentialVector;
+
+    if (abs((normalVector[2]) < abs(normalVector[0])) && (abs(normalVector[2]) < abs(normalVector[1])))
+    {
+        firstTangentialVector = Vector(-normalVector[1], normalVector[0], 0.);
+    }
+    else if (abs((normalVector[1]) < abs(normalVector[0])) && (abs(normalVector[1]) < abs(normalVector[2])))
+    {
+        firstTangentialVector = Vector(normalVector[2], 0., -normalVector[0]);
+    }
+    else
+    {
+        firstTangentialVector = Vector(0., normalVector[2], -normalVector[1]);
+    }
+    firstTangentialVector.normalize();
+    Vector secondTangentialVector = cross(normalVector, firstTangentialVector);
+
+    // Génération des composantes aléatoires
+    double u = uniform(engine);
+    double v = uniform(engine);
+    //double u = rand() / (double)RAND_MAX;
+    //double v = rand() / (double)RAND_MAX;
+    double s = sqrt(1 - v);
+
+    double x = cos(2 * M_PI * u) * s;
+    double y = sin(2 * M_PI * u) * s;
+    double z = sqrt(v);
+
+    // Génération de la direction du vecteur aléatoire (déjà normalisée par construction)
+    return x * firstTangentialVector + y * secondTangentialVector + z * normalVector;
+}
 
 class Scene
 {
@@ -248,28 +286,13 @@ public:
 
                 // Eclairage indirect
 
-                // Obtention d'une base avec deux vecteurs tangentiels
-                auto engine = rng[omp_get_thread_num()];
-                Vector randomVector = Vector(uniform(engine) - 0.5, uniform(engine) - 0.5, uniform(engine) - 0.5);
-                Vector firstTangentialVector = cross(normalVector, randomVector);
-                firstTangentialVector.normalize();
-                Vector secondTangentialVector = cross(normalVector, firstTangentialVector);
-
-                // Génération des composantes aléatoires
-                double u = uniform(engine);
-                double v = uniform(engine);
-                double s = sqrt(1 - v);
-
-                double x = cos(2 * M_PI * u) * s;
-                double y = sin(2 * M_PI * u) * s;
-                double z = sqrt(v);
-
-                // Génération du vecteur aléatoire
-                Vector randomDirection = x * firstTangentialVector + y * secondTangentialVector + z * normalVector;
-                randomDirection.normalize();
+                // Génération de la direction du vecteur aléatoire (déjà normalisée par construction)
+                Vector randomDirection = random_cos(normalVector);
                 Ray randomRay(intersectionPoint + epsilon * normalVector, randomDirection);
 
-                return color + intersectingSphere.matter.albedo * getColor(randomRay, reflectionNumber + 1);
+                color = color + intersectingSphere.matter.albedo * getColor(randomRay, reflectionNumber + 1);
+
+                return color;
             }
         }
 
@@ -297,13 +320,6 @@ int main()
     Vector originMain(0, 0, 0);
     double radiusMain(10); // Rayon de la sphère cible
     Sphere sMain(originMain, radiusMain, matterMain);
-
-    // Sphère secondaire
-    Vector rhoBis(0, 1, 0); // Albédo de la sphère cible
-    Matter matterBis({rhoMain, false, false, 1.3});
-    Vector originBis(0, 25, -15);
-    double radiusBis(3); // Rayon de la sphère cible
-    Sphere sBis(originBis, radiusBis, matterBis);
 
     // Sphère devant la caméra (magenta)
     Vector rhoFront(1, 0, 1); // Albédo de la boule magenta
@@ -353,7 +369,6 @@ int main()
     scene.addLight(lightSource);
 
     scene.addSphere(sMain);
-    //scene.addSphere(sBis);
     scene.addSphere(sFront);
     scene.addSphere(sBack);
     scene.addSphere(sUp);
@@ -375,17 +390,23 @@ int main()
     {
         for (int j = 0; j < width; j++)
         {
-            Vector color(0);
+            std::default_random_engine &engine = rng[omp_get_thread_num()];
+
+            Vector color(0, 0, 0);
 
             for (int rayNumber = 0; rayNumber < maxRaysForMonteCarlo; rayNumber++)
             {
-                // Direction du rayon lancé depuis la caméra vers le pixel en (i, j)
-                Vector u(j - width / 2 + 0.5, height - i - height / 2 + 0.5, -width / (2 * tanfov2)); // Facteur 0.5 pour être au centre d'un pixel
-                u.normalize();                                                                        // On normalise la direction
-                Ray r(cameraPoint, u);                                                                // On crée le rayon
+                // Anti-aliasing
+                double r1 = uniform(engine);
+                double r2 = uniform(engine);
 
-                // On cherche ensuite si le rayon intersecte la scène
-                IntersectionWithScene intersection;
+                double x = cos(2 * M_PI * r1) * sqrt((-2) * log(r2));
+                double y = sin(2 * M_PI * r1) * sqrt((-2) * log(r2));
+
+                // Direction du rayon lancé depuis la caméra vers le pixel en (i, j)
+                Vector u(j - width / 2 + 0.5 + x, height - i - height / 2 + 0.5 + y, -width / (2 * tanfov2)); // Facteur 0.5 pour être au centre d'un pixel
+                u.normalize();                                                                                // On normalise la direction
+                Ray r(cameraPoint, u);                                                                        // On crée le rayon
 
                 color = color + scene.getColor(r, 0);
             }
