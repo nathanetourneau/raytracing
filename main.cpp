@@ -10,8 +10,9 @@
 #include <random>
 #include <cmath>
 #include <omp.h>
+
 #define _USE_MATH_DEFINES
-#include<math.h>
+#include <math.h>
 
 #include "Vector.h"
 
@@ -19,11 +20,7 @@ std::default_random_engine rng[8]; // Modifier par le nombre de coeurs de l'ordi
 std::uniform_real_distribution<double> uniform(0., 1.);
 
 const double epsilon(0.01); // Pour corriger les bugs liés à la précision numérique
-
 const int maxReflectionNumber(5);
-
-const int width = 1024;
-const int height = 1024;
 
 class Ray
 {
@@ -143,12 +140,12 @@ Vector random_cos(Vector &normalVector)
     // Génération des composantes aléatoires
     double u = uniform(engine);
     double v = uniform(engine);
-    //double u = rand() / (double)RAND_MAX;
-    //double v = rand() / (double)RAND_MAX;
-    double s = sqrt(1 - v);
 
-    double x = cos(2 * M_PI * u) * s;
-    double y = sin(2 * M_PI * u) * s;
+    double sqrtV = sqrt(1 - v);
+    double twoPiU = 2 * M_PI * u;
+
+    double x = cos(twoPiU) * sqrtV;
+    double y = sin(twoPiU) * sqrtV;
     double z = sqrt(v);
 
     // Génération de la direction du vecteur aléatoire (déjà normalisée par construction)
@@ -238,7 +235,11 @@ public:
 
                 double insideSquareRoot = 1 - pow(n1 / n2, 2) * (1 - pow(cosAngle, 2));
 
-                if (insideSquareRoot < 0)
+                double k0 = pow((n1 - n2) / (n1 + n2), 2);
+                double R = k0 + (1 - k0) * pow(1 - abs(cosAngle), 5);
+                std::default_random_engine &engine = rng[omp_get_thread_num()];
+
+                if ((insideSquareRoot < 0) || (uniform(engine) < R))
                 {
                     Vector reflectedDirection = r.direction + (-2) * dot(r.direction, normalVector) * normalVector;
                     Ray reflectedRay(intersectionPoint + epsilon * normalVector, reflectedDirection);
@@ -307,6 +308,16 @@ public:
 
 int main()
 {
+    // Configuration de la scène
+
+    int maxRaysForMonteCarlo(128); // Nombre de rayons par pixel
+
+    double fov = 60 * M_PI / 180;
+    double tanfov2 = tan(fov / 2);
+
+    const int width = 1024;
+    const int height = 1024;
+
     Vector originPoint(0, 0, 0);  // Position de l'image
     Vector cameraPoint(0, 0, 55); // Position de la caméra
 
@@ -316,8 +327,8 @@ int main()
 
     // Sphère principale
     Vector rhoMain(1, 1, 1); // Albédo de la sphère cible
-    Matter matterMain({rhoMain, false, false, 1.3});
-    Vector originMain(0, 0, 0);
+    Matter matterMain({rhoMain, false, true, 1.5});
+    Vector originMain(10, 0, 15);
     double radiusMain(10); // Rayon de la sphère cible
     Sphere sMain(originMain, radiusMain, matterMain);
 
@@ -378,11 +389,6 @@ int main()
 
     Sphere intersectingSphere(sMain); // TODO: fix the bug to remove (sMain) from the constructor
 
-    double fov = 60 * M_PI / 180;
-    double tanfov2 = tan(fov / 2);
-
-    int maxRaysForMonteCarlo(128);
-
     std::vector<unsigned char> image(width * height * 3, 0);
 
 #pragma omp parallel for
@@ -390,6 +396,7 @@ int main()
     {
         for (int j = 0; j < width; j++)
         {
+
             std::default_random_engine &engine = rng[omp_get_thread_num()];
 
             Vector color(0, 0, 0);
@@ -400,13 +407,16 @@ int main()
                 double r1 = uniform(engine);
                 double r2 = uniform(engine);
 
-                double x = cos(2 * M_PI * r1) * sqrt((-2) * log(r2));
-                double y = sin(2 * M_PI * r1) * sqrt((-2) * log(r2));
+                double twoPiR = 2 * M_PI * r1;
+                double sqrtLogR = sqrt((-2) * log(r2));
+
+                double x = cos(twoPiR) * sqrtLogR;
+                double y = sin(twoPiR) * sqrtLogR;
 
                 // Direction du rayon lancé depuis la caméra vers le pixel en (i, j)
-                Vector u(j - width / 2 + 0.5 + x, height - i - height / 2 + 0.5 + y, -width / (2 * tanfov2)); // Facteur 0.5 pour être au centre d'un pixel
-                u.normalize();                                                                                // On normalise la direction
-                Ray r(cameraPoint, u);                                                                        // On crée le rayon
+                Vector u(j - width / 2 + 0.5 + x, height / 2 - i + 0.5 + y, -width / (2 * tanfov2)); // Facteur 0.5 pour être au centre d'un pixel
+                u.normalize();                                                                       // On normalise la direction
+                Ray r(cameraPoint, u);                                                               // On crée le rayon
 
                 color = color + scene.getColor(r, 0);
             }
