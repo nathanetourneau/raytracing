@@ -96,7 +96,7 @@ public:
     }
 
     // Fonction qui calcule le vecteur normal étant donné un point
-    Vector getNormalVector(Vector &point) const
+    Vector getNormalVector(const Vector &point) const
     {
         Vector normalVector = (point - origin);
         normalVector.normalize();
@@ -116,7 +116,7 @@ struct IntersectionWithScene
     int sphereNumber;
 };
 
-Vector random_cos(Vector &normalVector)
+Vector random_cos(const Vector &normalVector)
 {
     std::default_random_engine &engine = rng[omp_get_thread_num()];
 
@@ -190,7 +190,7 @@ public:
         return IntersectionWithScene{hasIntersection, intersectionPoint, minimalTSoFar, sphereNumber};
     }
 
-    Vector getColor(Ray r, int reflectionNumber) const
+    Vector getColor(const Ray &r, int reflectionNumber) const
     {
         Vector color(0, 0, 0);
 
