@@ -66,6 +66,45 @@ public:
     Matter matter;
 };
 
+class BBox
+{
+public:
+    ~BBox(){};
+
+    explicit BBox(Vector minPoint = Vector(0, 0, 0), Vector maxPoint = Vector(0, 0, 0))
+    {
+        this->minPoint = minPoint;
+        this->maxPoint = maxPoint;
+    };
+
+    Intersection intersect(const Ray &r) const
+    {
+        double xMin = (minPoint[0] - r.origin[0]) / r.direction[0];
+        double xMax = (maxPoint[0] - r.origin[0]) / r.direction[0];
+        double yMin = (minPoint[1] - r.origin[1]) / r.direction[1];
+        double yMax = (maxPoint[1] - r.origin[1]) / r.direction[1];
+        double zMin = (minPoint[2] - r.origin[2]) / r.direction[2];
+        double zMax = (maxPoint[2] - r.origin[2]) / r.direction[2];
+
+        if (xMin > xMax)
+            std::swap(xMin, xMax);
+        if (yMin > yMax)
+            std::swap(yMin, yMax);
+        if (zMin > zMax)
+            std::swap(zMin, zMax);
+
+        double tMin = std::max(xMin, std::max(yMin, zMin));
+        double tMax = std::min(xMax, std::min(yMax, zMax));
+
+        bool hasInter = (tMin < tMax);
+        // On ne s'intéresse qu'au premier booléen, les autres champs sont remplis avec n'importe quoi
+        return Intersection({hasInter, r.origin, 0, r.direction});
+    };
+
+    Vector minPoint;
+    Vector maxPoint;
+};
+
 class Sphere : public Object
 {
 public:
@@ -148,6 +187,7 @@ public:
     {
         this->origin = origin;
         this->matter = matter;
+        this->boundingBox = BBox();
     };
 
     void readOBJ(const char *obj)
@@ -499,7 +539,27 @@ public:
         fclose(f);
     }
 
-    Intersection intersectWithOneFace(const Ray &r, const Vector &A, const Vector &B, const Vector &C) const
+    void buildBB()
+    {
+        double xMin, xMax, yMin, yMax, zMin, zMax;
+
+        for (int k = 0; k < vertices.size(); k++)
+        {
+            xMin = std::min(xMin, vertices[k][0]);
+            xMax = std::max(xMax, vertices[k][0]);
+            yMin = std::min(yMin, vertices[k][1]);
+            yMax = std::max(yMax, vertices[k][1]);
+            zMin = std::min(zMin, vertices[k][2]);
+            zMax = std::max(zMax, vertices[k][2]);
+        }
+
+        Vector minPoint(xMin, yMin, zMin);
+        Vector maxPoint(xMax, yMax, zMax);
+
+        this->boundingBox = BBox(minPoint, maxPoint);
+    };
+
+    Intersection intersectWithOneFace(const Ray &r, const Vector &A, const Vector &B, const Vector &C, const Vector &ni, const Vector &nj, const Vector &nk) const
     {
         Vector e1 = B - A;
         Vector e2 = C - A;
@@ -521,21 +581,34 @@ public:
         }
 
         Vector intersectionPoint = r.origin + t * r.direction;
+        normalVector = alpha * ni + beta * nj + gamma * nk;
         normalVector.normalize();
         return Intersection{true, intersectionPoint, t, normalVector};
     }
 
     virtual Intersection intersect(const Ray &r) const
     {
+        if (!this->boundingBox.intersect(r).exists)
+        {
+            return Intersection({false, r.origin, 0, r.direction});
+        }
+
         double minimalTSoFar(std::numeric_limits<float>::max());
 
-        Intersection currentIntersection;
+        Intersection currentIntersection{false, Vector(0, 0, 0), 0, Vector(0, 0, 0)};
         Intersection finalIntersection{false, Vector(0, 0, 0), 0, Vector(0, 0, 0)};
 
         for (int k = 0; k < indices.size(); k++)
         {
             TriangleIndices triangle = indices[k];
-            currentIntersection = intersectWithOneFace(r, vertices[triangle.vtxi], vertices[triangle.vtxj], vertices[triangle.vtxk]);
+            currentIntersection = intersectWithOneFace(
+                r,
+                vertices[triangle.vtxi],
+                vertices[triangle.vtxj],
+                vertices[triangle.vtxk],
+                normals[triangle.vtxi],
+                normals[triangle.vtxj],
+                normals[triangle.vtxk]);
 
             if ((currentIntersection.exists) && (currentIntersection.t < minimalTSoFar))
             {
@@ -545,11 +618,41 @@ public:
         return finalIntersection;
     }
 
+    void move(double scale, Vector offset)
+    {
+        for (int k = 0; k < vertices.size(); k++)
+        {
+            vertices[k] = scale * vertices[k] + offset;
+        }
+    }
+
+    void invertNormals()
+    {
+        for (int k = 0; k < normals.size(); k++)
+        {
+            normals[k] = (-1) * normals[k];
+        }
+    }
+
+    void swapAxis(int axis1, int axis2)
+    {
+        for (int k = 0; k < normals.size(); k++)
+        {
+            std::swap(normals[k][axis1], normals[k][axis2]);
+        }
+
+        for (int k = 0; k < vertices.size(); k++)
+        {
+            std::swap(vertices[k][axis1], vertices[k][axis2]);
+        }
+    }
+
     std::vector<TriangleIndices> indices;
     std::vector<Vector> vertices;
     std::vector<Vector> normals;
     std::vector<Vector> uvs;
     std::vector<Vector> vertexcolors;
+    BBox boundingBox;
 };
 
 struct IntersectionWithScene
@@ -637,7 +740,7 @@ public:
         return IntersectionWithScene{hasIntersection, intersectionPoint, minimalTSoFar, objectNumber, normalVector};
     }
 
-    Vector getColor(const Ray &r, int reflectionNumber, bool indirectLighting, bool monteCarlo, bool fresnel) const
+    Vector getColor(const Ray &r, int reflectionNumber, bool indirectLighting, bool fresnel) const
     {
         Vector color(0, 0, 0);
 
@@ -657,7 +760,7 @@ public:
             {
                 Vector reflectedDirection = r.direction + (-2) * dot(r.direction, normalVector) * normalVector;
                 Ray reflectedRay(intersectionPoint + epsilon * normalVector, reflectedDirection);
-                return getColor(reflectedRay, reflectionNumber + 1, indirectLighting, monteCarlo, fresnel);
+                return getColor(reflectedRay, reflectionNumber + 1, indirectLighting, fresnel);
             }
 
             else if (intersectingObject->matter.transparent)
@@ -691,7 +794,7 @@ public:
                 {
                     Vector reflectedDirection = r.direction + (-2) * dot(r.direction, normalVector) * normalVector;
                     Ray reflectedRay(intersectionPoint + epsilon * normalVector, reflectedDirection);
-                    return getColor(reflectedRay, reflectionNumber + 1, indirectLighting, monteCarlo, fresnel);
+                    return getColor(reflectedRay, reflectionNumber + 1, indirectLighting, fresnel);
                 }
 
                 else
@@ -703,7 +806,7 @@ public:
 
                     Vector refractedDirection = normalComponent + tangentialComponent;
                     Ray refractedRay(intersectionPoint - epsilon * normalVector, refractedDirection);
-                    return getColor(refractedRay, reflectionNumber + 1, indirectLighting, monteCarlo, fresnel);
+                    return getColor(refractedRay, reflectionNumber + 1, indirectLighting, fresnel);
                 }
             }
 
@@ -740,7 +843,7 @@ public:
                     Vector randomDirection = randomCos(normalVector);
                     Ray randomRay(intersectionPoint + epsilon * normalVector, randomDirection);
 
-                    color = color + intersectingObject->matter.albedo * getColor(randomRay, reflectionNumber + 1, indirectLighting, monteCarlo, fresnel);
+                    color = color + intersectingObject->matter.albedo * getColor(randomRay, reflectionNumber + 1, indirectLighting, fresnel);
                 }
                 return color;
             }
@@ -761,8 +864,7 @@ int main()
     bool ANTI_ALIASING(false);
     bool INDIRECT_LIGHTING(false);
     bool FRESNEL(false);
-    bool MONTE_CARLO(false);
-    int MAX_RAYS_MONTE_CARLO = MONTE_CARLO ? 16 : 1; // Nombre de rayons par pixel
+    int MAX_RAYS_MONTE_CARLO = (ANTI_ALIASING || INDIRECT_LIGHTING || FRESNEL) ? 16 : 1; // Nombre de rayons par pixel
 
     double fov = 60 * M_PI / 180;
     double tanfov2 = tan(fov / 2);
@@ -774,8 +876,8 @@ int main()
     Vector originPoint(0, 0, 0);  // Position de l'image
     Vector cameraPoint(0, 0, 55); // Position de la caméra
 
-    Vector lightPoint(-10, 20, 40);   // Position de la source de lumière
-    double lightIntensity(300000000); // Intensité de la source de lumière
+    Vector lightPoint(-10, 20, 40);    // Position de la source de lumière
+    double lightIntensity(3000000000); // Intensité de la source de lumière
     LightSource lightSource({lightIntensity, lightPoint});
 
     // Sphère principale
@@ -833,6 +935,10 @@ int main()
     Vector originTriangle(0, 0, 0);
     TriangleMesh triangle(originTriangle, matterTriangle);
     triangle.readOBJ("beautifulgirl.obj");
+    triangle.swapAxis(1, 2);
+    triangle.move(20, Vector(0, -10, 0));
+    triangle.invertNormals();
+    triangle.buildBB();
 
     // Création de la scène
     Scene scene;
@@ -888,7 +994,7 @@ int main()
                 u.normalize();                                                                       // On normalise la direction
                 Ray r(cameraPoint, u);                                                               // On crée le rayon
 
-                color = color + scene.getColor(r, 0, INDIRECT_LIGHTING, MONTE_CARLO, FRESNEL);
+                color = color + scene.getColor(r, 0, INDIRECT_LIGHTING, FRESNEL);
             }
 
             color = color / MAX_RAYS_MONTE_CARLO;
