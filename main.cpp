@@ -106,6 +106,18 @@ public:
     Vector maxPoint;
 };
 
+class BVH
+{
+public:
+    explicit BVH()
+    {
+    }
+
+    BVH *lc, *rc;
+    int lowerIndex, upperIndex;
+    BBox boundingBox;
+};
+
 class Sphere : public Object
 {
 public:
@@ -188,7 +200,6 @@ public:
     {
         this->origin = origin;
         this->matter = matter;
-        this->boundingBox = BBox();
     }
 
     void readOBJ(const char *obj)
@@ -540,30 +551,92 @@ public:
         fclose(f);
     }
 
-    void buildBB()
+    BBox buildBB(int lowerIndex, int upperIndex)
     {
-        double xMin = vertices[0][0];
-        double xMax = vertices[0][0];
-        double yMin = vertices[0][1];
-        double yMax = vertices[0][1];
-        double zMin = vertices[0][2];
-        double zMax = vertices[0][2];
+        TriangleIndices tri = indices[lowerIndex];
+        double xMin = vertices[tri.vtxi][0];
+        double xMax = vertices[tri.vtxi][0];
+        double yMin = vertices[tri.vtxi][1];
+        double yMax = vertices[tri.vtxi][1];
+        double zMin = vertices[tri.vtxi][2];
+        double zMax = vertices[tri.vtxi][2];
 
-        for (int k = 0; k < vertices.size(); k++)
+        for (int k = lowerIndex; k < upperIndex; k++)
         {
-            xMin = std::min(xMin, vertices[k][0]);
-            xMax = std::max(xMax, vertices[k][0]);
-            yMin = std::min(yMin, vertices[k][1]);
-            yMax = std::max(yMax, vertices[k][1]);
-            zMin = std::min(zMin, vertices[k][2]);
-            zMax = std::max(zMax, vertices[k][2]);
+            TriangleIndices tri = indices[k];
+
+            xMin = std::min(std::min(xMin, vertices[tri.vtxi][0]), std::min(vertices[tri.vtxj][0], vertices[tri.vtxk][0]));
+            xMax = std::max(std::max(xMax, vertices[tri.vtxi][0]), std::max(vertices[tri.vtxj][0], vertices[tri.vtxk][0]));
+
+            yMin = std::min(std::min(yMin, vertices[tri.vtxi][1]), std::min(vertices[tri.vtxj][1], vertices[tri.vtxk][1]));
+            yMax = std::max(std::max(yMax, vertices[tri.vtxi][1]), std::max(vertices[tri.vtxj][1], vertices[tri.vtxk][1]));
+
+            zMin = std::min(std::min(zMin, vertices[tri.vtxi][2]), std::min(vertices[tri.vtxj][2], vertices[tri.vtxk][2]));
+            zMax = std::max(std::max(zMax, vertices[tri.vtxi][2]), std::max(vertices[tri.vtxj][2], vertices[tri.vtxk][2]));
         }
 
         Vector minPoint(xMin, yMin, zMin);
         Vector maxPoint(xMax, yMax, zMax);
 
-        this->boundingBox = BBox(minPoint, maxPoint);
-    };
+        return BBox(minPoint, maxPoint);
+    }
+
+    void buildBVH(BVH *node, int lowerIndex, int upperIndex)
+    {
+        node->boundingBox = buildBB(lowerIndex, upperIndex);
+        node->lowerIndex = lowerIndex;
+        node->upperIndex = upperIndex;
+        node->lc = NULL;
+        node->rc = NULL;
+
+        Vector diag = node->boundingBox.maxPoint - node->boundingBox.minPoint;
+
+        int dim(-1);
+
+        // On cherche l'axe ayant la plus grande diagonale
+        if (diag[0] >= std::max(diag[1], diag[2]))
+        {
+            dim = 0;
+        }
+
+        else if (diag[1] >= std::max(diag[0], diag[2]))
+        {
+            dim = 1;
+        }
+
+        else
+        {
+            dim = 2;
+        }
+
+        double splitValue = 0.5 * (node->boundingBox.minPoint[dim] + node->boundingBox.maxPoint[dim]);
+
+        int pivot = lowerIndex;
+
+        for (int k = lowerIndex; k < upperIndex; k++)
+        {
+            TriangleIndices tri = indices[k];
+            double midPointValue = (vertices[tri.vtxi][dim] + vertices[tri.vtxj][dim] + vertices[tri.vtxk][dim]) / 3;
+            if (midPointValue < splitValue)
+            {
+                std::swap(indices[k], indices[pivot]);
+                pivot++;
+            }
+        }
+
+        if ((pivot <= lowerIndex) || (pivot >= upperIndex - 1) || (upperIndex - lowerIndex < 5))
+            return;
+
+        node->lc = new BVH;
+        node->rc = new BVH;
+        buildBVH(node->lc, lowerIndex, pivot + 1);
+        buildBVH(node->rc, pivot + 1, upperIndex);
+    }
+
+    void initBVH()
+    {
+        buildBVH(&bvh, 0, indices.size());
+    }
 
     Intersection intersectWithOneFace(const Ray &r, const TriangleIndices &triangle) const
     {
@@ -593,7 +666,7 @@ public:
 
         Vector intersectionPoint = verticeI + e1 * beta + e2 * gamma;
 
-        if (false)
+        if (true)
         {
             Vector ni = normals[triangle.ni];
             Vector nj = normals[triangle.nj];
@@ -607,25 +680,47 @@ public:
 
     virtual Intersection intersect(const Ray &r) const
     {
-        if (!this->boundingBox.intersect(r).exists)
-        {
-            return Intersection({false, r.origin, 0, r.direction});
-        }
-
+        Intersection finalIntersection{false, Vector(0, 0, 0), 0, Vector(0, 0, 0)};
         double minimalTSoFar(std::numeric_limits<double>::max());
 
-        Intersection currentIntersection{false, Vector(0, 0, 0), std::numeric_limits<double>::max(), Vector(0, 0, 0)};
-        Intersection finalIntersection{false, Vector(0, 0, 0), std::numeric_limits<double>::max(), Vector(0, 0, 0)};
+        if (!bvh.boundingBox.intersect(r).exists)
+            return finalIntersection;
 
-        for (int k = 0; k < indices.size(); k++)
+        std::list<const BVH *> nodes;
+        nodes.push_back(&bvh);
+
+        while (!nodes.empty())
         {
-            TriangleIndices triangle = indices[k];
-            currentIntersection = intersectWithOneFace(r, triangle);
+            const BVH *currentBVH = nodes.front();
+            nodes.pop_front();
 
-            if ((currentIntersection.exists) && (currentIntersection.t < minimalTSoFar))
+            if (currentBVH->lc)
             {
-                minimalTSoFar = currentIntersection.t;
-                finalIntersection = currentIntersection;
+                if (currentBVH->lc->boundingBox.intersect(r).exists)
+                {
+                    nodes.push_front(currentBVH->lc);
+                }
+
+                if (currentBVH->rc->boundingBox.intersect(r).exists)
+                {
+                    nodes.push_front(currentBVH->rc);
+                }
+            }
+
+            else
+            {
+                Intersection currentIntersection{false, Vector(0, 0, 0), 0, Vector(0, 0, 0)};
+
+                for (int k = currentBVH->lowerIndex; k < currentBVH->upperIndex; k++)
+                {
+                    currentIntersection = intersectWithOneFace(r, indices[k]);
+
+                    if (currentIntersection.exists && currentIntersection.t < minimalTSoFar)
+                    {
+                        finalIntersection = currentIntersection;
+                        minimalTSoFar = currentIntersection.t;
+                    }
+                }
             }
         }
         return finalIntersection;
@@ -636,14 +731,6 @@ public:
         for (int k = 0; k < vertices.size(); k++)
         {
             vertices[k] = scale * vertices[k] + offset;
-        }
-    }
-
-    void invertNormals()
-    {
-        for (int k = 0; k < normals.size(); k++)
-        {
-            normals[k] = (-1) * normals[k];
         }
     }
 
@@ -697,7 +784,7 @@ public:
     std::vector<Vector> normals;
     std::vector<Vector> uvs;
     std::vector<Vector> vertexcolors;
-    BBox boundingBox;
+    BVH bvh;
 };
 
 struct IntersectionWithScene
@@ -982,13 +1069,18 @@ int main()
     TriangleMesh mesh(originMesh, matterMesh);
 
     // Sheep
-    mesh.readOBJ("./mesh/sheep/sheep.obj");
-    mesh.move(10, Vector(0, -10, 0));
-    mesh.rotate(1, 135);
+    // mesh.readOBJ("./mesh/sheep/sheep.obj");
+    // mesh.move(10, Vector(0, -10, 0));
+    // mesh.rotate(1, 135);
+
+    // Goodboi
+    mesh.readOBJ("./mesh/dog/dog.obj");
+    mesh.rotate(0, 90);
+    mesh.rotate(1, -45);
 
     std::cout << std::endl
-              << "Building BB..." << std::endl;
-    mesh.buildBB();
+              << "Building BVH..." << std::endl;
+    mesh.initBVH();
     std::cout << "Done!" << std::endl;
 
     // Création de la scène
