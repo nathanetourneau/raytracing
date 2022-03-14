@@ -14,12 +14,13 @@
 #include <iostream>
 #include <stdio.h>
 #include <algorithm>
+#include <list>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
 
 #include "Vector.h"
-#include "progressbar.h"
+#include <chrono>
 
 // TODO : fix to automatically adjust for the number of CPU cores
 std::default_random_engine rng[8]; // Modifier par le nombre de coeurs de l'ordi
@@ -96,7 +97,7 @@ public:
         double tMin = std::max(xMin, std::max(yMin, zMin));
         double tMax = std::min(xMax, std::min(yMax, zMax));
 
-        bool hasInter = (tMin < tMax);
+        bool hasInter = (tMax > 0 && tMin <= tMax);
         // On ne s'intéresse qu'au premier booléen, les autres champs sont remplis avec n'importe quoi
         return Intersection({hasInter, r.origin, 0, r.direction});
     };
@@ -114,7 +115,7 @@ public:
         this->radius = radius;
         this->matter = matter;
         this->reverseNormal = reverseNormal;
-    };
+    }
 
     // Fonction qui calcule le vecteur normal étant donné un point
     Vector getNormalVector(const Vector &point) const
@@ -188,7 +189,7 @@ public:
         this->origin = origin;
         this->matter = matter;
         this->boundingBox = BBox();
-    };
+    }
 
     void readOBJ(const char *obj)
     {
@@ -541,7 +542,12 @@ public:
 
     void buildBB()
     {
-        double xMin, xMax, yMin, yMax, zMin, zMax;
+        double xMin = vertices[0][0];
+        double xMax = vertices[0][0];
+        double yMin = vertices[0][1];
+        double yMax = vertices[0][1];
+        double zMin = vertices[0][2];
+        double zMax = vertices[0][2];
 
         for (int k = 0; k < vertices.size(); k++)
         {
@@ -559,30 +565,43 @@ public:
         this->boundingBox = BBox(minPoint, maxPoint);
     };
 
-    Intersection intersectWithOneFace(const Ray &r, const Vector &A, const Vector &B, const Vector &C, const Vector &ni, const Vector &nj, const Vector &nk) const
+    Intersection intersectWithOneFace(const Ray &r, const TriangleIndices &triangle) const
     {
-        Vector e1 = B - A;
-        Vector e2 = C - A;
-        Vector AO = r.origin - A;
+        // Points du triangle
+        Vector verticeI = vertices[triangle.vtxi];
+        Vector verticeJ = vertices[triangle.vtxj];
+        Vector verticeK = vertices[triangle.vtxk];
+
+        Vector e1 = verticeJ - verticeI;
+        Vector e2 = verticeK - verticeI;
+
         Vector normalVector = cross(e1, e2);
+
+        Vector toOrigin = (r.origin - verticeI);
+        Vector tangentialVector = cross(toOrigin, r.direction);
         double denominator = dot(r.direction, normalVector);
-        Vector tangentialVector = cross(AO, r.direction);
 
         double beta = -dot(e2, tangentialVector) / denominator;
-        double gamma = dot(e1, tangentialVector) / denominator;
-        double alpha = 1 - beta - gamma;
-        double t = (-1) * dot(AO, normalVector) / denominator;
+        double gamma = +dot(e1, tangentialVector) / denominator;
+        double alpha = 1. - beta - gamma;
 
-        bool hasInter = (alpha >= 0 && alpha <= 1 && beta >= 0 && beta <= 1 && gamma >= 0 && gamma <= 1);
+        double t = -dot(toOrigin, normalVector) / denominator;
+        bool valid = (0 <= alpha && alpha <= 1 && 0 <= beta && beta <= 1 && 0 <= gamma && gamma <= 1 && t >= 0);
 
-        if ((t < 0) || (!hasInter))
+        if (!valid)
+            return Intersection({false, verticeI, 0, normalVector});
+
+        Vector intersectionPoint = verticeI + e1 * beta + e2 * gamma;
+
+        if (false)
         {
-            return Intersection({false, A, t, normalVector});
+            Vector ni = normals[triangle.ni];
+            Vector nj = normals[triangle.nj];
+            Vector nk = normals[triangle.nk];
+            normalVector = alpha * ni + beta * nj + gamma * nk;
         }
-
-        Vector intersectionPoint = r.origin + t * r.direction;
-        normalVector = alpha * ni + beta * nj + gamma * nk;
         normalVector.normalize();
+
         return Intersection{true, intersectionPoint, t, normalVector};
     }
 
@@ -593,25 +612,19 @@ public:
             return Intersection({false, r.origin, 0, r.direction});
         }
 
-        double minimalTSoFar(std::numeric_limits<float>::max());
+        double minimalTSoFar(std::numeric_limits<double>::max());
 
-        Intersection currentIntersection{false, Vector(0, 0, 0), 0, Vector(0, 0, 0)};
-        Intersection finalIntersection{false, Vector(0, 0, 0), 0, Vector(0, 0, 0)};
+        Intersection currentIntersection{false, Vector(0, 0, 0), std::numeric_limits<double>::max(), Vector(0, 0, 0)};
+        Intersection finalIntersection{false, Vector(0, 0, 0), std::numeric_limits<double>::max(), Vector(0, 0, 0)};
 
         for (int k = 0; k < indices.size(); k++)
         {
             TriangleIndices triangle = indices[k];
-            currentIntersection = intersectWithOneFace(
-                r,
-                vertices[triangle.vtxi],
-                vertices[triangle.vtxj],
-                vertices[triangle.vtxk],
-                normals[triangle.vtxi],
-                normals[triangle.vtxj],
-                normals[triangle.vtxk]);
+            currentIntersection = intersectWithOneFace(r, triangle);
 
             if ((currentIntersection.exists) && (currentIntersection.t < minimalTSoFar))
             {
+                minimalTSoFar = currentIntersection.t;
                 finalIntersection = currentIntersection;
             }
         }
@@ -647,6 +660,38 @@ public:
         }
     }
 
+    void rotate(int axis, double angle)
+    {
+        int axis1 = (axis + 1) % 3;
+        int axis2 = (axis + 2) % 3;
+
+        angle = angle * M_PI / 180;
+
+        double cosAngle = cos(angle);
+        double sinAngle = sin(angle);
+
+        double temp1;
+        double temp2;
+
+        for (int k = 0; k < normals.size(); k++)
+        {
+            temp1 = normals[k][axis1];
+            temp2 = normals[k][axis2];
+
+            normals[k][axis1] = temp1 * cosAngle + temp2 * sinAngle;
+            normals[k][axis2] = temp1 * (-sinAngle) + temp2 * cosAngle;
+        }
+
+        for (int k = 0; k < vertices.size(); k++)
+        {
+            temp1 = vertices[k][axis1];
+            temp2 = vertices[k][axis2];
+
+            vertices[k][axis1] = temp1 * cosAngle + temp2 * sinAngle;
+            vertices[k][axis2] = temp1 * (-sinAngle) + temp2 * cosAngle;
+        }
+    }
+
     std::vector<TriangleIndices> indices;
     std::vector<Vector> vertices;
     std::vector<Vector> normals;
@@ -666,7 +711,7 @@ struct IntersectionWithScene
 
 Vector randomCos(const Vector &normalVector)
 {
-    std::default_random_engine &engine = rng[omp_get_thread_num()];
+    int threadNumber = omp_get_thread_num();
 
     Vector firstTangentialVector;
 
@@ -686,8 +731,8 @@ Vector randomCos(const Vector &normalVector)
     Vector secondTangentialVector = cross(normalVector, firstTangentialVector);
 
     // Génération des composantes aléatoires
-    double u = uniform(engine);
-    double v = uniform(engine);
+    double u = uniform(rng[threadNumber]);
+    double v = uniform(rng[threadNumber]);
 
     double sqrtV = sqrt(1 - v);
     double twoPiU = 2 * M_PI * u;
@@ -717,7 +762,7 @@ public:
 
     IntersectionWithScene intersect(const Ray &r) const
     {
-        double minimalTSoFar(std::numeric_limits<float>::max());
+        double minimalTSoFar(std::numeric_limits<double>::max());
         bool hasIntersection(false);
         Vector intersectionPoint;
         int objectNumber;
@@ -743,6 +788,8 @@ public:
     Vector getColor(const Ray &r, int reflectionNumber, bool indirectLighting, bool fresnel) const
     {
         Vector color(0, 0, 0);
+
+        int threadNumber = omp_get_thread_num();
 
         if (reflectionNumber == maxReflectionNumber)
             return color;
@@ -787,8 +834,7 @@ public:
 
                 double k0 = pow((n1 - n2) / (n1 + n2), 2);
                 double R = k0 + (1 - k0) * pow(1 - abs(cosAngle), 5);
-                std::default_random_engine &engine = rng[omp_get_thread_num()];
-                bool fresnelCase = fresnel && (uniform(engine) < R);
+                bool fresnelCase = fresnel && (uniform(rng[threadNumber]) < R);
 
                 if ((insideSquareRoot < 0) || fresnelCase)
                 {
@@ -830,7 +876,7 @@ public:
                 est-elle plus proche que la source de lumière ? */
                 bool hasShadow;
                 // L'évaluation du && est paresseuse
-                hasShadow = intersectionGoingToLight.exists && (std::pow(intersectionGoingToLight.t, 2) < dSquared);
+                hasShadow = intersectionGoingToLight.exists && (intersectionGoingToLight.t * intersectionGoingToLight.t < 0.99 * dSquared);
 
                 double visibility(hasShadow ? 0. : 1.); // 0 si ombre, 1 sinon
 
@@ -870,8 +916,8 @@ int main()
     double tanfov2 = tan(fov / 2);
     double stdAntiAliasing = 0.3;
 
-    const int width = 1024;
-    const int height = 1024;
+    const int width = 512;
+    const int height = 512;
 
     Vector originPoint(0, 0, 0);  // Position de l'image
     Vector cameraPoint(0, 0, 55); // Position de la caméra
@@ -930,15 +976,20 @@ int main()
     Sphere sRight(originRight, radiusRight, matterRight);
 
     // Triangle (rouge)
-    Vector rhoTriangle(1, 0, 0); // Albédo de la boule rouge
-    Matter matterTriangle({rhoTriangle, false, false, 1.3});
-    Vector originTriangle(0, 0, 0);
-    TriangleMesh triangle(originTriangle, matterTriangle);
-    triangle.readOBJ("beautifulgirl.obj");
-    triangle.swapAxis(1, 2);
-    triangle.move(20, Vector(0, -10, 0));
-    triangle.invertNormals();
-    triangle.buildBB();
+    Vector rhoMesh(1, 1, 1); // Albédo de la boule rouge
+    Matter matterMesh({rhoMesh, false, false, 1.3});
+    Vector originMesh(0, 0, 0);
+    TriangleMesh mesh(originMesh, matterMesh);
+
+    // Sheep
+    mesh.readOBJ("./mesh/sheep/sheep.obj");
+    mesh.move(10, Vector(0, -10, 0));
+    mesh.rotate(1, 135);
+
+    std::cout << std::endl
+              << "Building BB..." << std::endl;
+    mesh.buildBB();
+    std::cout << "Done!" << std::endl;
 
     // Création de la scène
     Scene scene;
@@ -952,23 +1003,18 @@ int main()
     scene.addObject(&sDown);
     scene.addObject(&sLeft);
     scene.addObject(&sRight);
-    scene.addObject(&triangle);
+    scene.addObject(&mesh);
 
     std::vector<unsigned char> image(width * height * 3, 0);
 
-    ProgressBar pg;
-    pg.start(height);
-
     auto start = std::chrono::high_resolution_clock::now();
 
-#pragma omp parallel for
+#pragma omp parallel for schedule(dynamic, 1)
     for (int i = 0; i < height; i++)
     {
+
         for (int j = 0; j < width; j++)
         {
-
-            std::default_random_engine &engine = rng[omp_get_thread_num()];
-
             Vector color(0, 0, 0);
 
             for (int rayNumber = 0; rayNumber < MAX_RAYS_MONTE_CARLO; rayNumber++)
@@ -979,8 +1025,10 @@ int main()
                 // Anti-aliasing
                 if (ANTI_ALIASING)
                 {
-                    double r1 = uniform(engine);
-                    double r2 = uniform(engine);
+                    int threadNumber = omp_get_thread_num();
+
+                    double r1 = uniform(rng[threadNumber]);
+                    double r2 = uniform(rng[threadNumber]);
 
                     double twoPiR = 2 * M_PI * r1;
                     double sqrtLogR = sqrt((-2) * log(r2)) * stdAntiAliasing;
@@ -1004,7 +1052,6 @@ int main()
                 image[(i * width + j) * 3 + k] = std::min(255., std::pow(color[k], 1. / 2.2));
             }
         }
-        pg.update(i);
     }
 
     stbi_write_png("output.png", width, height, 3, &image[0], 0);
