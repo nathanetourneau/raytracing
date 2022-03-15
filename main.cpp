@@ -1077,9 +1077,11 @@ int main()
     mesh.readOBJ("./mesh/dog/dog.obj");
     mesh.rotate(0, 90);
     mesh.rotate(1, -45);
+    mesh.move(1, Vector(0, -10, 0));
 
-    std::cout << std::endl
-              << "Building BVH..." << std::endl;
+            std::cout
+        << std::endl
+        << "Building BVH..." << std::endl;
     mesh.initBVH();
     std::cout << "Done!" << std::endl;
 
