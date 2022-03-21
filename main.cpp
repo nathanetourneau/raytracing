@@ -54,6 +54,7 @@ struct Intersection
     Vector point;
     double t;
     Vector normalVector;
+    Vector albedo;
 };
 
 class Ray
@@ -105,7 +106,7 @@ public:
 
         bool hasInter = (tMax > 0 && tMin <= tMax);
         // On ne s'intéresse qu'au premier booléen, les autres champs sont remplis avec n'importe quoi
-        return Intersection({hasInter, r.origin, 0, r.direction});
+        return Intersection({hasInter, r.origin, 0, r.direction, Vector(0, 0, 0)});
     };
 
     Vector minPoint;
@@ -163,7 +164,7 @@ public:
         // Cas sans racines réelles : pas d'intersection, on renvoie n'importe quoi
         if (delta < 0)
         {
-            intersection = {false, intersectionPoint, t, Vector(0, 0, 0)};
+            intersection = {false, intersectionPoint, t, Vector(0, 0, 0), Vector(0, 0, 0)};
             return intersection;
         }
 
@@ -178,13 +179,13 @@ public:
         // Cas sans intersection
         if (t2 < 0)
         {
-            intersection = {false, intersectionPoint, t, Vector(0, 0, 0)};
+            intersection = {false, intersectionPoint, t, Vector(0, 0, 0), Vector(0, 0, 0)};
             return intersection;
         }
 
         t = t1 > 0 ? t1 : t2;                           // Soit t1 soit t2 en fonction de la positivité de t1
         intersectionPoint = r.origin + t * r.direction; // Le point associé
-        intersection = {true, intersectionPoint, t, this->getNormalVector(intersectionPoint)};
+        intersection = {true, intersectionPoint, t, this->getNormalVector(intersectionPoint), matter.albedo};
         return intersection;
     }
 };
@@ -559,6 +560,18 @@ public:
         fclose(f);
     }
 
+    void loadTexture(const char *textureFile)
+    {
+        useTextures = true;
+        int width;
+        int heigth;
+        int channels;
+        unsigned char *texture = stbi_load(textureFile, &width, &heigth, &channels, 3);
+        widthList.push_back(width);
+        heigthList.push_back(heigth);
+        textures.push_back(texture);
+    }
+
     BBox buildBB(int lowerIndex, int upperIndex)
     {
         TriangleIndices tri = indices[lowerIndex];
@@ -670,25 +683,44 @@ public:
         bool valid = (0 <= alpha && alpha <= 1 && 0 <= beta && beta <= 1 && 0 <= gamma && gamma <= 1 && t >= 0);
 
         if (!valid)
-            return Intersection({false, verticeI, 0, normalVector});
+            return Intersection({false, verticeI, 0, normalVector, matter.albedo});
 
         Vector intersectionPoint = verticeI + e1 * beta + e2 * gamma;
 
-        if (true)
-        {
-            Vector ni = normals[triangle.ni];
-            Vector nj = normals[triangle.nj];
-            Vector nk = normals[triangle.nk];
-            normalVector = alpha * ni + beta * nj + gamma * nk;
-        }
+        Vector ni = normals[triangle.ni];
+        Vector nj = normals[triangle.nj];
+        Vector nk = normals[triangle.nk];
+        normalVector = alpha * ni + beta * nj + gamma * nk;
         normalVector.normalize();
 
-        return Intersection{true, intersectionPoint, t, normalVector};
+        // Texture
+        Vector albedo;
+
+        if (useTextures)
+        {
+            // Case with one texture file or multiple files
+            int group = (textures.size() == 1) ? 0 : triangle.group;
+            int height = heigthList[group];
+            int width = widthList[group];
+            Vector uv = alpha * uvs[triangle.uvi] + beta * uvs[triangle.uvj] + gamma * uvs[triangle.uvk];
+            int uvx = fabs(fmod(uv[0], 1.) * width);
+            int uvy = height - fabs(fmod(uv[1], 1.) * height);
+            albedo = Vector(
+                std::pow(textures[group][(uvy * width + uvx) * 3 + 0] / 255., 2.2),
+                std::pow(textures[group][(uvy * width + uvx) * 3 + 1] / 255., 2.2),
+                std::pow(textures[group][(uvy * width + uvx) * 3 + 2] / 255., 2.2));
+        }
+        else
+        {
+            albedo = matter.albedo;
+        }
+
+        return Intersection{true, intersectionPoint, t, normalVector, albedo};
     }
 
     virtual Intersection intersect(const Ray &r) const
     {
-        Intersection finalIntersection{false, Vector(0, 0, 0), 0, Vector(0, 0, 0)};
+        Intersection finalIntersection{false, Vector(0, 0, 0), 0, Vector(0, 0, 0), matter.albedo};
         double minimalTSoFar(std::numeric_limits<double>::max());
 
         if (!bvh.boundingBox.intersect(r).exists)
@@ -717,7 +749,7 @@ public:
 
             else
             {
-                Intersection currentIntersection{false, Vector(0, 0, 0), 0, Vector(0, 0, 0)};
+                Intersection currentIntersection{false, Vector(0, 0, 0), 0, Vector(0, 0, 0), Vector(0, 0, 0)};
 
                 for (int k = currentBVH->lowerIndex; k < currentBVH->upperIndex; k++)
                 {
@@ -790,9 +822,14 @@ public:
     std::vector<TriangleIndices> indices;
     std::vector<Vector> vertices;
     std::vector<Vector> normals;
+    BVH bvh;
+
+    bool useTextures;
+    std::vector<unsigned char *> textures;
+    std::vector<int> widthList;
+    std::vector<int> heigthList;
     std::vector<Vector> uvs;
     std::vector<Vector> vertexcolors;
-    BVH bvh;
 };
 
 struct IntersectionWithScene
@@ -802,6 +839,7 @@ struct IntersectionWithScene
     double t;
     int objectNumber;
     Vector normalVector;
+    Vector albedo;
 };
 
 Vector randomCos(const Vector &normalVector)
@@ -858,6 +896,7 @@ public:
         int objectNumber;
         Intersection currentIntersection;
         Vector normalVector;
+        Vector albedo;
 
         for (int k = 0; k < objects.size(); k++)
         {
@@ -870,9 +909,10 @@ public:
                 intersectionPoint = currentIntersection.point;
                 objectNumber = k;
                 normalVector = currentIntersection.normalVector;
+                albedo = currentIntersection.albedo;
             }
         }
-        return IntersectionWithScene{hasIntersection, intersectionPoint, minimalTSoFar, objectNumber, normalVector};
+        return IntersectionWithScene{hasIntersection, intersectionPoint, minimalTSoFar, objectNumber, normalVector, albedo};
     }
 
     Vector getColor(const Ray &r, int reflectionNumber, bool indirectLighting, bool softShadows, bool fresnel, bool showLight = false) const
@@ -892,8 +932,9 @@ public:
             Vector intersectionPoint = currentIntersection.point;
             Object *intersectingObject = objects[currentIntersection.objectNumber];
             Vector normalVector = currentIntersection.normalVector;
+            Vector intersectingAlbedo = currentIntersection.albedo;
 
-            if (intersectingObject->intensity > 10 && showLight)
+            if (intersectingObject->intensity > epsilon && showLight)
             {
                 return intersectingObject->intensity * light->matter.albedo;
             }
@@ -988,7 +1029,7 @@ public:
                     double probability = std::max(0., dot(goingFromLightVector, randomVector)) / M_PI / (light->radius * light->radius);
                     double J = std::max(0., dot(randomVector, (-1) * randomDirection)) / dSquared;
 
-                    Vector BRDF = intersectingObject->matter.albedo / M_PI;
+                    Vector BRDF = currentIntersection.albedo / M_PI;
                     color = V * BRDF * light->intensity / (4 * M_PI * M_PI * light->radius * light->radius) * std::max(0., dot(randomDirection, normalVector)) * J / probability;
                 }
 
@@ -1014,7 +1055,7 @@ public:
                     hasShadow = intersectionGoingToLight.exists && (intersectionGoingToLight.t < 0.99 * (std::sqrt(dSquared) - light->radius));
                     double V(hasShadow ? 0. : 1.); // 0 si ombre, 1 sinon
 
-                    Vector BRDF = intersectingObject->matter.albedo / M_PI;
+                    Vector BRDF = currentIntersection.albedo / M_PI;
                     color = V * BRDF * this->light->intensity / (4 * M_PI * dSquared) * std::max(0., dot(goingToLightVector, normalVector));
                 }
 
@@ -1025,7 +1066,7 @@ public:
                     Vector randomDirection = randomCos(normalVector);
                     Ray randomRay(intersectionPoint + epsilon * normalVector, randomDirection);
 
-                    color = color + intersectingObject->matter.albedo * getColor(randomRay, reflectionNumber + 1, indirectLighting, softShadows, fresnel);
+                    color = color + currentIntersection.albedo * getColor(randomRay, reflectionNumber + 1, indirectLighting, softShadows, fresnel);
                 }
                 return color;
             }
@@ -1046,9 +1087,9 @@ int main()
     init_rng(rng);
 
     // Configuration de la scène
-    bool ANTI_ALIASING(true);
-    bool INDIRECT_LIGHTING(true);
-    bool SOFT_SHADOWS(true);
+    bool ANTI_ALIASING(false);
+    bool INDIRECT_LIGHTING(false);
+    bool SOFT_SHADOWS(false);
     bool FRESNEL(false);
     int MAX_RAYS_MONTE_CARLO = (ANTI_ALIASING || INDIRECT_LIGHTING || SOFT_SHADOWS || FRESNEL) ? 64 : 1; // Nombre de rayons par pixel
 
@@ -1118,19 +1159,38 @@ int main()
     double radiusRight(940); // Rayon de la boule rouge
     Sphere sRight(originRight, radiusRight, matterRight);
 
+    // Mesh
+    Vector rhoMesh(1, 1, 1); // Albédo de la boule rouge
+    Matter matterMesh({rhoMesh, false, false, 1.3});
+    Vector originMesh(0, 0, 0);
+    TriangleMesh mesh(originMesh, matterMesh);
+
+    // Goodboi
+    mesh.readOBJ("./mesh/dog/dog.obj");
+    mesh.loadTexture("./mesh/dog/dog.jpg");
+    mesh.rotate(0, 90);
+    mesh.rotate(1, -45);
+    mesh.move(1, Vector(0, -10, 0));
+
+    std::cout << std::endl
+              << "Building BVH..." << std::endl;
+    mesh.initBVH();
+    std::cout << "Done!" << std::endl;
+
     // Création de la scène
     Scene scene;
     scene = Scene();
     scene.addObject(&sLight);
     scene.light = &sLight;
 
-    scene.addObject(&sMain);
+    // scene.addObject(&sMain);
     scene.addObject(&sFront);
     scene.addObject(&sBack);
     scene.addObject(&sUp);
     scene.addObject(&sDown);
     scene.addObject(&sLeft);
     scene.addObject(&sRight);
+    scene.addObject(&mesh);
 
     std::vector<unsigned char> image(width * height * 3, 0);
 
