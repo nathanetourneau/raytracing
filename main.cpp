@@ -23,17 +23,22 @@
 #include <chrono>
 
 // TODO : fix to automatically adjust for the number of CPU cores
-std::default_random_engine rng[8]; // Modifier par le nombre de coeurs de l'ordi
+
+std::vector<std::default_random_engine> rng; // Modifier par le nombre de coeurs de l'ordi
+
+void init_rng(std::vector<std::default_random_engine> &rng)
+{
+    std::random_device r;
+    for (int i = 0; i < omp_get_max_threads(); i++)
+    {
+        rng.push_back(std::default_random_engine(r()));
+    };
+};
+
 std::uniform_real_distribution<double> uniform(0., 1.);
 
 const double epsilon(0.01); // Pour corriger les bugs liés à la précision numérique
 const int maxReflectionNumber(5);
-
-struct LightSource
-{
-    double intensity;
-    Vector origin;
-};
 
 struct Matter
 {
@@ -65,6 +70,7 @@ public:
 
     Vector origin;
     Matter matter;
+    double intensity;
 };
 
 class BBox
@@ -121,12 +127,13 @@ public:
 class Sphere : public Object
 {
 public:
-    explicit Sphere(const Vector &origin, const double radius, const Matter &matter, const bool reverseNormal = false)
+    explicit Sphere(const Vector &origin, const double radius, const Matter &matter, const bool reverseNormal = false, const double intensity = 0)
     {
         this->origin = origin;
         this->radius = radius;
         this->matter = matter;
         this->reverseNormal = reverseNormal;
+        this->intensity = intensity;
     }
 
     // Fonction qui calcule le vecteur normal étant donné un point
@@ -139,6 +146,7 @@ public:
 
     double radius;
     bool reverseNormal;
+    bool isLight;
 
     virtual Intersection intersect(const Ray &r) const
     {
@@ -842,11 +850,6 @@ public:
         this->objects.push_back(object);
     }
 
-    void addLight(const LightSource &light)
-    {
-        this->light = light;
-    }
-
     IntersectionWithScene intersect(const Ray &r) const
     {
         double minimalTSoFar(std::numeric_limits<double>::max());
@@ -872,7 +875,7 @@ public:
         return IntersectionWithScene{hasIntersection, intersectionPoint, minimalTSoFar, objectNumber, normalVector};
     }
 
-    Vector getColor(const Ray &r, int reflectionNumber, bool indirectLighting, bool fresnel) const
+    Vector getColor(const Ray &r, int reflectionNumber, bool indirectLighting, bool softShadows, bool fresnel, bool showLight = false) const
     {
         Vector color(0, 0, 0);
 
@@ -890,11 +893,16 @@ public:
             Object *intersectingObject = objects[currentIntersection.objectNumber];
             Vector normalVector = currentIntersection.normalVector;
 
+            if (intersectingObject->intensity > 10 && showLight)
+            {
+                return intersectingObject->intensity * light->matter.albedo;
+            }
+
             if (intersectingObject->matter.mirror)
             {
                 Vector reflectedDirection = r.direction + (-2) * dot(r.direction, normalVector) * normalVector;
                 Ray reflectedRay(intersectionPoint + epsilon * normalVector, reflectedDirection);
-                return getColor(reflectedRay, reflectionNumber + 1, indirectLighting, fresnel);
+                return getColor(reflectedRay, reflectionNumber + 1, indirectLighting, softShadows, fresnel, showLight);
             }
 
             else if (intersectingObject->matter.transparent)
@@ -927,7 +935,7 @@ public:
                 {
                     Vector reflectedDirection = r.direction + (-2) * dot(r.direction, normalVector) * normalVector;
                     Ray reflectedRay(intersectionPoint + epsilon * normalVector, reflectedDirection);
-                    return getColor(reflectedRay, reflectionNumber + 1, indirectLighting, fresnel);
+                    return getColor(reflectedRay, reflectionNumber + 1, indirectLighting, softShadows, fresnel);
                 }
 
                 else
@@ -939,35 +947,76 @@ public:
 
                     Vector refractedDirection = normalComponent + tangentialComponent;
                     Ray refractedRay(intersectionPoint - epsilon * normalVector, refractedDirection);
-                    return getColor(refractedRay, reflectionNumber + 1, indirectLighting, fresnel);
+                    return getColor(refractedRay, reflectionNumber + 1, indirectLighting, softShadows, fresnel);
                 }
             }
 
             else
             {
-                // Vecteur reliant l'intersection et la source
-                Vector goingToLightVector = light.origin - intersectionPoint;
-                double dSquared = goingToLightVector.norm2();
-                goingToLightVector.normalize(); // Normalisé
+                if (softShadows)
+                {
+                    // Vecteur reliant l'intersection et la source
+                    Vector goingFromLightVector = intersectionPoint - light->origin;
+                    goingFromLightVector.normalize(); // Normalisé
 
-                // Calcul de la fonction de visibilité
+                    Vector randomVector = randomCos(goingFromLightVector);
+                    randomVector.normalize();
 
-                // Rayon partant de l'intersection vers la lumière, légèrement décollé pour pallier les problèmes de précision numérique
-                Ray rayGoingToLight(intersectionPoint + epsilon * normalVector, goingToLightVector);
+                    Vector randomPoint = light->origin + light->radius * randomVector; // Point aléatoire à la surface de la source de lumière
+                    Vector randomDirection = randomPoint - intersectionPoint;
+                    double dSquared = randomDirection.norm2();
+                    randomDirection.normalize();
 
-                // Intersection avec la scène
-                IntersectionWithScene intersectionGoingToLight;
-                intersectionGoingToLight = this->intersect(rayGoingToLight);
+                    // Calcul de la fonction de visibilité
 
-                /* On teste la présence d'une ombre : s'il y a une intersection,
-                est-elle plus proche que la source de lumière ? */
-                bool hasShadow;
-                // L'évaluation du && est paresseuse
-                hasShadow = intersectionGoingToLight.exists && (intersectionGoingToLight.t * intersectionGoingToLight.t < 0.99 * dSquared);
+                    // Rayon partant de l'intersection vers la lumière, légèrement décollé pour pallier les problèmes de précision numérique
+                    // En direction du point aléatoire à la surface de la sphère
+                    Ray rayGoingToLight(intersectionPoint + epsilon * normalVector, randomDirection);
 
-                double visibility(hasShadow ? 0. : 1.); // 0 si ombre, 1 sinon
+                    // Intersection avec la scène
+                    IntersectionWithScene intersectionGoingToLight;
+                    intersectionGoingToLight = this->intersect(rayGoingToLight);
 
-                color = visibility * intersectingObject->matter.albedo * this->light.intensity * std::max(0., dot(goingToLightVector, normalVector)) / dSquared / M_PI;
+                    /* On teste la présence d'une ombre : s'il y a une intersection,
+                    est-elle plus proche que la source de lumière ? */
+                    bool hasShadow;
+                    // L'évaluation du && est paresseuse
+                    hasShadow = intersectionGoingToLight.exists && (std::pow(intersectionGoingToLight.t, 2) < 0.99 * dSquared);
+                    ;
+                    double V(hasShadow ? 0. : 1.); // 0 si ombre, 1 sinon
+
+                    double probability = std::max(0., dot(goingFromLightVector, randomVector)) / M_PI / (light->radius * light->radius);
+                    double J = std::max(0., dot(randomVector, (-1) * randomDirection)) / dSquared;
+
+                    Vector BRDF = intersectingObject->matter.albedo / M_PI;
+                    color = V * BRDF * light->intensity / (4 * M_PI * M_PI * light->radius * light->radius) * std::max(0., dot(randomDirection, normalVector)) * J / probability;
+                }
+
+                else
+                {
+                    // Vecteur reliant l'intersection et la source
+                    Vector goingToLightVector = light->origin - intersectionPoint;
+                    double dSquared = goingToLightVector.norm2();
+                    goingToLightVector.normalize(); // Normalisé
+
+                    // Calcul de la fonction de visibilité
+
+                    // Rayon partant de l'intersection vers la lumière, légèrement décollé pour pallier les problèmes de précision numérique
+                    Ray rayGoingToLight(intersectionPoint + epsilon * normalVector, goingToLightVector);
+
+                    // Intersection avec la scène
+                    IntersectionWithScene intersectionGoingToLight;
+                    intersectionGoingToLight = this->intersect(rayGoingToLight);
+                    /* On teste la présence d'une ombre : s'il y a une intersection,
+                    est-elle plus proche que la source de lumière ? */
+                    bool hasShadow;
+                    // L'évaluation du && est paresseuse
+                    hasShadow = intersectionGoingToLight.exists && (intersectionGoingToLight.t < 0.99 * (std::sqrt(dSquared) - light->radius));
+                    double V(hasShadow ? 0. : 1.); // 0 si ombre, 1 sinon
+
+                    Vector BRDF = intersectingObject->matter.albedo / M_PI;
+                    color = V * BRDF * this->light->intensity / (4 * M_PI * dSquared) * std::max(0., dot(goingToLightVector, normalVector));
+                }
 
                 // Eclairage indirect
                 if (indirectLighting)
@@ -976,7 +1025,7 @@ public:
                     Vector randomDirection = randomCos(normalVector);
                     Ray randomRay(intersectionPoint + epsilon * normalVector, randomDirection);
 
-                    color = color + intersectingObject->matter.albedo * getColor(randomRay, reflectionNumber + 1, indirectLighting, fresnel);
+                    color = color + intersectingObject->matter.albedo * getColor(randomRay, reflectionNumber + 1, indirectLighting, softShadows, fresnel);
                 }
                 return color;
             }
@@ -987,17 +1036,21 @@ public:
     }
 
     std::vector<Object *> objects;
-    LightSource light;
+    Sphere *light;
+    double lightIntensity;
     double n;
 };
 
 int main()
 {
+    init_rng(rng);
+
     // Configuration de la scène
-    bool ANTI_ALIASING(false);
-    bool INDIRECT_LIGHTING(false);
+    bool ANTI_ALIASING(true);
+    bool INDIRECT_LIGHTING(true);
+    bool SOFT_SHADOWS(true);
     bool FRESNEL(false);
-    int MAX_RAYS_MONTE_CARLO = (ANTI_ALIASING || INDIRECT_LIGHTING || FRESNEL) ? 16 : 1; // Nombre de rayons par pixel
+    int MAX_RAYS_MONTE_CARLO = (ANTI_ALIASING || INDIRECT_LIGHTING || SOFT_SHADOWS || FRESNEL) ? 64 : 1; // Nombre de rayons par pixel
 
     double fov = 60 * M_PI / 180;
     double tanfov2 = tan(fov / 2);
@@ -1009,12 +1062,15 @@ int main()
     Vector originPoint(0, 0, 0);  // Position de l'image
     Vector cameraPoint(0, 0, 55); // Position de la caméra
 
-    Vector lightPoint(-10, 20, 40);    // Position de la source de lumière
-    double lightIntensity(3000000000); // Intensité de la source de lumière
-    LightSource lightSource({lightIntensity, lightPoint});
+    Vector originLight(-10, 20, 40); // Position de la source de lumière
+    double radiusLight(8);
+    double lightIntensity(5E9); // Intensité de la source de lumière
+    Vector rhoLight(1, 1, 1);
+    Matter matterLight({rhoLight, false, false, 1});
+    Sphere sLight(originLight, radiusLight, matterLight, false, lightIntensity);
 
     // Sphère principale
-    Vector rhoMain(1, 1, 1); // Albédo de la sphère cible
+    Vector rhoMain(0.1, 0.1, 1); // Albédo de la sphère cible
     Matter matterMain({rhoMain, false, false, 1.5});
     Vector originMain(0, -5, 15);
     double radiusMain(5); // Rayon de la sphère cible
@@ -1062,42 +1118,19 @@ int main()
     double radiusRight(940); // Rayon de la boule rouge
     Sphere sRight(originRight, radiusRight, matterRight);
 
-    // Triangle (rouge)
-    Vector rhoMesh(1, 1, 1); // Albédo de la boule rouge
-    Matter matterMesh({rhoMesh, false, false, 1.3});
-    Vector originMesh(0, 0, 0);
-    TriangleMesh mesh(originMesh, matterMesh);
-
-    // Sheep
-    // mesh.readOBJ("./mesh/sheep/sheep.obj");
-    // mesh.move(10, Vector(0, -10, 0));
-    // mesh.rotate(1, 135);
-
-    // Goodboi
-    mesh.readOBJ("./mesh/dog/dog.obj");
-    mesh.rotate(0, 90);
-    mesh.rotate(1, -45);
-    mesh.move(1, Vector(0, -10, 0));
-
-            std::cout
-        << std::endl
-        << "Building BVH..." << std::endl;
-    mesh.initBVH();
-    std::cout << "Done!" << std::endl;
-
     // Création de la scène
     Scene scene;
     scene = Scene();
-    scene.addLight(lightSource);
+    scene.addObject(&sLight);
+    scene.light = &sLight;
 
-    // scene.addObject(&sMain);
+    scene.addObject(&sMain);
     scene.addObject(&sFront);
     scene.addObject(&sBack);
     scene.addObject(&sUp);
     scene.addObject(&sDown);
     scene.addObject(&sLeft);
     scene.addObject(&sRight);
-    scene.addObject(&mesh);
 
     std::vector<unsigned char> image(width * height * 3, 0);
 
@@ -1136,7 +1169,7 @@ int main()
                 u.normalize();                                                                       // On normalise la direction
                 Ray r(cameraPoint, u);                                                               // On crée le rayon
 
-                color = color + scene.getColor(r, 0, INDIRECT_LIGHTING, FRESNEL);
+                color = color + scene.getColor(r, 0, INDIRECT_LIGHTING, SOFT_SHADOWS, FRESNEL, true);
             }
 
             color = color / MAX_RAYS_MONTE_CARLO;
