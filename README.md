@@ -104,11 +104,11 @@ Cette méthode étant extrêmement couteuse en calcul, nous effectuons 2 techniq
 
 ![](./results/meshgirl.png)
 
-Cette image a été calculée en 1.1s avec 1 rayon par pixel, et aucun effet sauf l'éclairage direct (plusieurs centaines de secondes sans BVH)
+Cette image a été calculée en 1.1s avec 1 rayon par pixel, et aucun effet sauf l'éclairage direct (plusieurs centaines de secondes sans BVH), avec interpolation de normales.
 
 ![](./results/mesh.png)
 
-Cette image a été calculée en 7s avec 1 rayon par pixel, et aucun effet sauf l'éclairage direct (plusieurs centaines de secondes sans BVH)
+Cette image a été calculée en 7s avec 1 rayon par pixel, et aucun effet sauf l'éclairage direct (plusieurs centaines de secondes sans BVH), avec interpolation de normales.
 
 ## Textures
 Une fois que le calcul efficace de l'intersection avec des maillage a été rendu possible grâce à la structure BVH, j'ai implémenté l'utilisation de textures. L'usage d'une texture modifie simplement l'albédo de l'objet, qui est ainsi une fonction du point d'intersection.
@@ -117,11 +117,12 @@ Chaque sommet du maillage contient une coordonnée UV, qui fait le mapping entre
 
 ![](./results/texturesdirect.png)
 
-Cette image a été calculée en 6s avec 1 rayon par pixel, et aucun effet sauf l'éclairage direct (plusieurs centaines de secondes sans BVH).
+Cette image a été calculée en 6s avec 1 rayon par pixel, et aucun effet sauf l'éclairage direct (plusieurs centaines de secondes sans BVH), avec interpolation de normales.
 
 ![](./results/textures.png)
+![](./results/textures2.png)
 
-Cette image a été calculée en plusieures heures avec 512 rayons par pixels, avec anti-aliasing, éclairage indirect, ombres douces.
+Ces deux images ont été calculées en plusieures heures avec 512 rayons par pixels, avec anti-aliasing, éclairage indirect, ombres douces et interpolation de normales.
 
 ## Retour d'expérience sur le cours
 J'ai beaucoup apprécié le cours. Je le trouve très bien construit, surtout au début où les progrès sont visibles : chaque cours conduit à une nouvelle fonctionnalité dans le raytracer, ce qui est très plaisant.
