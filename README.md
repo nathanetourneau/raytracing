@@ -1,4 +1,5 @@
 # Implémentation d'un raytracer en C++
+Ce README.md est le rapport de mon projet. Les effets que j'ai implémenté sont les suivants : éclairage direct, éclairage indirect, ombres douces, anti-aliasing, sphères miroir, sphères transparentes, coefficients de Fresnel, les maillages, les textures, l'interpolation de normales.
 
 ## Présentation du projet
 Au cours de projet, j'ai pu implémenter un raytracer en C++. L'idée d'un raytracer est de lancer des rayons dans une scène, de modéliser les intersection avec les objets de la scène, à l'aide de l'optique géométrique, pour en déduire la couleur de l'intersection.
@@ -30,14 +31,12 @@ Une fois ce point d'intersection à l'ombre, on calcule si le point d'intersecti
 Si le point est éclairé, une formule permet de calculer l'intensité lumineuse en ce point en fonction du produit scalaire entre le vecteur normal et la direction du rayon, divisé par la distance au carré à la lumière.
 
 ![](./results/noeffects.png)
-
 Cette image a été calculée en 160ms.
 
 ## Anti-aliasing
 Le second effet que j'ai modélisé est l'anti-aliasing. L'anti-aliasing consiste à ne pas envoyer un rayon par pixel à une position fixe, mais à envoyer une collection de rayons par pixel, où l'on déplace légèrement la direction incidente du rayon entre chaque lancer, afin de mieux modéliser les frontière des objets.
 
 ![](./results/antialiasing.png)
-
 Cette image a été calculée en 11s avec 128 rayons par pixel. On constate que les bordures de la sphère ainsi que l'ombre sont moins crénelées. 
 
 ## Eclairage indirect
@@ -46,37 +45,31 @@ Dans la vie réelle, les objets ne sont pas uniquement éclairés par la lumièr
 D'un point de vue implémentation, cela consiste à dire que lorsqu'on envoie un rayon et que l'on intersecte un objet, en plus de la composante liée à l'éclairage direct, nous envoyons un rayon dans une direction aléatoire, et nous calculons la couleur de l'intersection de ce second rayon avec la scène, et nous ajoutons cette contribution à l'éclairage direct. Le fait d'envoyer plusieurs rayons effectue une intégration de monte-carlo, et permet d'approcher le résultat théorique.
 
 ![](./results/indirect.png)
-
 Cette image a été calculée en 56s avec 128 rayons par pixel, avec anti-aliasing et éclairage indirect. On constate que l'image est plus lumineuse : l'éclairage indirect ajoute de la lumière à l'éclairage direct.
 
 ## Sphères miroir
 Dans ce projet, j'ai également implémenté des sphères miroir : on calcule l'intersection avec la sphère, et on renvoie un rayon depuis le point d'intersection dans la direction miroir.
 
 ![](./results/miroir.png)
-
 Cette image a été calculée en 260s avec 512 rayons par pixels, avec anti-aliasing, éclairage indirect, ombres douces.
 
 ## Sphères transparentes
 J'ai ensuite implémenté les sphères transparentes : on spécifie un indice de réfraction, et les lois de Snell-Descartes permettent de modéliser le trajet de la lumière dans la sphère.
 
 ![](./results/transparent.png)
-
 Cette image a été calculée en 260s avec 512 rayons par pixels, avec anti-aliasing, éclairage indirect, ombres douces.
 
 ## Fresnel
 Dans la vraie vie, les rayons réfractés ne sont pas que réfractés, mais sont également partiellement réflechis. L'intensité de la composante réfléchie et la composante réfractée est donnée grâce aux coefficients de Fresnel.
 
 L'implémentation des coefficients de Fresnel donne :
-
 ![](./results/fresnel.png)
-
 Cette image a été calculée en 274s avec 512 rayons par pixels, avec anti-aliasing, éclairage indirect, ombres douces.
 
 ## Ombres douces
 J'ai également implémenté des sources de lumières non-ponctuelles. Cela permet d'avoir des ombres douces.
 
 ![](./results/softshadows.png)
-
 Cette image a été calculée en 260s avec 512 rayons par pixels, avec anti-aliasing, éclairage indirect, ombres douces.
 
 ## Intersection avec un maillage
@@ -103,12 +96,10 @@ Cette méthode étant extrêmement couteuse en calcul, nous effectuons 2 techniq
 - Nous utilisons cette idée récursivement : nous effectuons un tri rapide de la liste des triangles (selon un ordre lié à la valeur d'une certaine composante du centre de gravité du triangle), et nous utilisons une structure d'arbre. Nous testons l'intersection avec la boite englobante de l'objet, et si le rayon intersecte la boite englobante, nous testons l'intersections avec les deux sous-boites. La structure d'arbre est ainsi constituée de noeuds dont les feuilles sont des bounding box de taille de plus en plus faible, et dont les noeuds sont des triangles. Cette structure permet un calcul d'une intersection avec un maillage avec un nombre d'opérations logarithmique en le nombre de triangles du maillage.
 
 ![](./results/meshgirl.png)
-
-Cette image a été calculée en 1.1s avec 1 rayon par pixel, et aucun effet sauf l'éclairage direct (plusieurs centaines de secondes sans BVH), avec interpolation de normales.
+Cette image a été calculée en 1.1s avec 1 rayon par pixel, et aucun effet sauf l'éclairage direct (plusieurs centaines de secondes sans BVH). Les normales sont interpolées.
 
 ![](./results/mesh.png)
-
-Cette image a été calculée en 7s avec 1 rayon par pixel, et aucun effet sauf l'éclairage direct (plusieurs centaines de secondes sans BVH), avec interpolation de normales.
+Cette image a été calculée en 7s avec 1 rayon par pixel, et aucun effet sauf l'éclairage direct (plusieurs centaines de secondes sans BVH). Les normales sont interpolées.
 
 ## Textures
 Une fois que le calcul efficace de l'intersection avec des maillage a été rendu possible grâce à la structure BVH, j'ai implémenté l'utilisation de textures. L'usage d'une texture modifie simplement l'albédo de l'objet, qui est ainsi une fonction du point d'intersection.
@@ -116,13 +107,10 @@ Une fois que le calcul efficace de l'intersection avec des maillage a été rend
 Chaque sommet du maillage contient une coordonnée UV, qui fait le mapping entre ce point et le point correspondant dans le fichier JPEG du maillage. Pour avoir la valeur en le point d'intersection, il faut interpoler les 3 valeurs des coordonnées UV des points voisins, à l'aide des coordonnées barycentriques.
 
 ![](./results/texturesdirect.png)
-
-Cette image a été calculée en 6s avec 1 rayon par pixel, et aucun effet sauf l'éclairage direct (plusieurs centaines de secondes sans BVH), avec interpolation de normales.
+Cette image a été calculée en 6s avec 1 rayon par pixel, et aucun effet sauf l'éclairage direct (plusieurs centaines de secondes sans BVH). Les normales sont interpolées.
 
 ![](./results/textures.png)
-![](./results/textures2.png)
-
-Ces deux images ont été calculées en plusieures heures avec 512 rayons par pixels, avec anti-aliasing, éclairage indirect, ombres douces et interpolation de normales.
+Cette image a été calculée en plusieures heures avec 512 rayons par pixels, avec anti-aliasing, éclairage indirect, ombres douces. Les normales sont interpolées.
 
 ## Retour d'expérience sur le cours
 J'ai beaucoup apprécié le cours. Je le trouve très bien construit, surtout au début où les progrès sont visibles : chaque cours conduit à une nouvelle fonctionnalité dans le raytracer, ce qui est très plaisant.
@@ -130,3 +118,5 @@ J'ai beaucoup apprécié le cours. Je le trouve très bien construit, surtout au
 Je trouve que le passage aux maillage est tout de même très compliqué : il y a beaucoup de bugs qui surviennent à ce moment la, et une séance de soutien afin de débugger les codes de ceux qui le souhaitent serait vraiment la bienvenue.
 
 De plus, lors de mon choix de ce cours, je sous-estimais probablement la difficulté que représente l'apprentissage du C++. Ayant de l'expérience en programmation, cela a été pour moi, mais certains élèves ont eu de très grandes difficultés à s'adapter.
+
+À titre personnel, je pense avoir passé entre 50 et 100 heures sur le projet. J'ai notamment subi énormément de bugs de générateur de nombres aléatoires, et j'ai notamment éprouvé de grandes difficultés pour l'implémentation des lumières douces, ainsi que des BVH : problèmes d'indices réglés uniquement avec des discussions avec mes collègues.
